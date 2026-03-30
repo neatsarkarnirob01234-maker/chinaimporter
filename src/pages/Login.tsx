@@ -4,6 +4,7 @@ import { LogIn, UserPlus, Phone, Lock, Mail, User } from "lucide-react";
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   updateProfile
 } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
@@ -21,6 +22,23 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      toast.error("Please enter your email first");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      toast.success("Password reset email sent! Please check your inbox.");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to send reset email");
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +73,11 @@ export default function Login() {
       }
     } catch (error: any) {
       console.error(error);
-      toast.error(error.message || "Authentication failed");
+      if (error.code === 'auth/operation-not-allowed') {
+        toast.error("Firebase Auth Error: Email/Password sign-in is not enabled. Please go to Firebase Console > Authentication > Sign-in method and enable Email/Password.");
+      } else {
+        toast.error(error.message || "Authentication failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -138,7 +160,14 @@ export default function Login() {
 
           {isLogin && (
             <div className="text-right">
-              <button type="button" className="text-sm text-primary font-medium hover:underline">Forgot Password?</button>
+              <button 
+                type="button" 
+                onClick={handleForgotPassword}
+                disabled={resetLoading}
+                className="text-sm text-primary font-medium hover:underline disabled:opacity-50"
+              >
+                {resetLoading ? "Sending..." : "Forgot Password?"}
+              </button>
             </div>
           )}
 

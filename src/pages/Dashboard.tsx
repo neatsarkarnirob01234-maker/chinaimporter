@@ -13,7 +13,8 @@ import {
   Plus,
   ArrowUpRight,
   ArrowDownLeft,
-  X
+  X,
+  ShieldCheck
 } from "lucide-react";
 import { 
   collection, 
@@ -101,6 +102,7 @@ export default function Dashboard({ userProfile }: DashboardProps) {
       // Create refund request
       const refundRef = await addDoc(collection(db, 'refundRequests'), {
         userId: userProfile.uid,
+        userEmail: userProfile.email,
         amount,
         status: 'Pending',
         createdAt: serverTimestamp()
@@ -118,6 +120,20 @@ export default function Dashboard({ userProfile }: DashboardProps) {
       toast.success("Withdrawal request submitted");
     } catch (error) {
       toast.error("Failed to submit request");
+    }
+  };
+
+  const handleClaimAdmin = async () => {
+    if (!userProfile) return;
+    try {
+      const userRef = doc(db, 'users', userProfile.uid);
+      await updateDoc(userRef, {
+        role: 'admin'
+      });
+      toast.success("Admin privileges claimed successfully!");
+    } catch (error) {
+      console.error("Error claiming admin:", error);
+      toast.error("Failed to claim admin privileges. Make sure you are logged in with the correct email.");
     }
   };
 
@@ -143,7 +159,24 @@ export default function Dashboard({ userProfile }: DashboardProps) {
           </div>
           <div>
             <h1 className="text-3xl font-bold">My Dashboard</h1>
-            <p className="text-gray-500">Welcome, {userProfile.displayName || userProfile.email}!</p>
+            <div className="flex items-center gap-2">
+              <p className="text-gray-500">Welcome, {userProfile.displayName || userProfile.email}!</p>
+              {userProfile.email === "neatsarkarnirob01234@gmail.com" && userProfile.role !== 'admin' && (
+                <button 
+                  onClick={handleClaimAdmin}
+                  className="flex items-center gap-1 bg-black text-white text-[10px] px-2 py-0.5 rounded-lg font-bold hover:bg-gray-800 transition-all"
+                >
+                  <ShieldCheck size={12} />
+                  Claim Admin
+                </button>
+              )}
+              {userProfile.role === 'admin' && (
+                <span className="bg-primary/10 text-primary text-[10px] px-2 py-0.5 rounded-lg font-bold flex items-center gap-1">
+                  <ShieldCheck size={12} />
+                  ADMIN
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <button 
@@ -221,7 +254,7 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                         {order.items.map((item, idx) => (
                           <div key={idx} className="flex items-center gap-3 bg-gray-50 p-2 rounded-2xl border border-gray-100">
                             <div className="w-12 h-12 bg-white rounded-xl overflow-hidden border border-gray-100">
-                              <img src={item.image} alt="" className="w-full h-full object-cover" />
+                              <img src={item.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             </div>
                             <div className="min-w-0 pr-2">
                               <h4 className="font-bold text-[10px] truncate max-w-[120px]">{item.title}</h4>

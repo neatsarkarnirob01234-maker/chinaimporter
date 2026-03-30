@@ -5,6 +5,13 @@ export interface Product {
   image: string;
   source_url: string;
   category?: string;
+  description?: string;
+  video?: string;
+  variants?: {
+    name: string;
+    options: string[];
+  }[];
+  createdAt?: any;
 }
 
 export interface CartItem extends Product {
@@ -27,6 +34,7 @@ export type OrderStatus = 'Order Placed' | 'Confirmed' | 'Purchased' | 'BD Wareh
 export interface Order {
   id: string;
   userId: string;
+  userEmail?: string;
   items: CartItem[];
   totalAmount: number;
   paidAmount: number;
@@ -37,11 +45,18 @@ export interface Order {
   createdAt: any;
   updatedAt: any;
   invoiceUrl?: string;
+  shippingAddress?: {
+    name: string;
+    phone: string;
+    email: string;
+    detail: string;
+  };
 }
 
 export interface RefundRequest {
   id: string;
   userId: string;
+  userEmail?: string;
   amount: number;
   status: 'Pending' | 'Completed' | 'Cancelled';
   gatewayCharge?: number;

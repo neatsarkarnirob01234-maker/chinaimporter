@@ -9,12 +9,13 @@ import { UserProfile } from "../types";
 interface MainLayoutProps {
   children: ReactNode;
   userProfile: UserProfile | null;
+  cartCount: number;
 }
 
-export default function MainLayout({ children, userProfile }: MainLayoutProps) {
+export default function MainLayout({ children, userProfile, cartCount }: MainLayoutProps) {
   return (
     <div className="min-h-screen flex flex-col font-sans">
-      <Header userProfile={userProfile} />
+      <Header userProfile={userProfile} cartCount={cartCount} />
       
       <main className="flex-1 container mx-auto px-4 py-8 flex gap-8">
         <Sidebar />

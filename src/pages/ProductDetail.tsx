@@ -1,28 +1,70 @@
-import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
-import { ShoppingCart, ShieldCheck, Truck, CreditCard, Star, ChevronLeft, ExternalLink } from "lucide-react";
+import { ShoppingCart, ShieldCheck, Truck, CreditCard, Star, ChevronLeft, ExternalLink, Loader2 } from "lucide-react";
 import { formatPrice } from "../lib/utils";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase";
+import { Product, CartItem } from "../types";
+import { toast } from "sonner";
 
-export default function ProductDetail() {
+interface ProductDetailProps {
+  addToCart: (item: CartItem) => void;
+}
+
+export default function ProductDetail({ addToCart }: ProductDetailProps) {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [quantity, setQuantity] = useState(1);
-  
-  // Mock product data
-  const product = {
-    id,
-    title: "Premium Wireless Earbuds with Noise Cancellation - High Fidelity Sound",
-    price_rmb: 85,
-    image: "https://picsum.photos/seed/p1/800/800",
-    source_url: "https://1688.com/1",
-    description: "Experience crystal clear sound with our premium wireless earbuds. Features active noise cancellation, 30-hour battery life, and ergonomic design for all-day comfort.",
-    specs: [
-      { label: "Brand", value: "Generic Premium" },
-      { label: "Model", value: "X-Pro 2024" },
-      { label: "Battery", value: "30 Hours" },
-      { label: "Connectivity", value: "Bluetooth 5.3" },
-    ]
+  const [product, setProduct] = useState<Product | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProduct = async () => {
+      if (!id) return;
+      setLoading(true);
+      try {
+        const docRef = doc(db, "products", id);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setProduct({ id: docSnap.id, ...docSnap.data() } as Product);
+        } else {
+          toast.error("Product not found");
+          navigate("/");
+        }
+      } catch (error) {
+        console.error("Error fetching product:", error);
+        toast.error("Failed to load product");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProduct();
+  }, [id, navigate]);
+
+  const handleAddToCart = () => {
+    if (!product) return;
+    const cartItem: CartItem = {
+      id: product.id,
+      title: product.title,
+      price_rmb: product.price_rmb,
+      image: product.image,
+      quantity: quantity,
+      source_url: product.source_url
+    };
+    addToCart(cartItem);
+    toast.success("Added to cart!");
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader2 className="animate-spin text-primary" size={48} />
+      </div>
+    );
+  }
+
+  if (!product) return null;
 
   return (
     <div className="space-y-8">
@@ -102,6 +144,7 @@ export default function ProductDetail() {
               <motion.button 
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
+                onClick={handleAddToCart}
                 className="flex-1 bg-primary text-white h-14 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-xl shadow-orange-200"
               >
                 <ShoppingCart size={20} />
@@ -140,17 +183,19 @@ export default function ProductDetail() {
       </div>
 
       {/* Specs */}
-      <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
-        <h2 className="text-xl font-bold mb-6">Specifications</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4">
-          {product.specs.map((spec, i) => (
-            <div key={i} className="flex justify-between py-3 border-b border-gray-50">
-              <span className="text-gray-500">{spec.label}</span>
-              <span className="font-medium">{spec.value}</span>
-            </div>
-          ))}
+      {product.specs && product.specs.length > 0 && (
+        <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+          <h2 className="text-xl font-bold mb-6">Specifications</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4">
+            {product.specs.map((spec, i) => (
+              <div key={i} className="flex justify-between py-3 border-b border-gray-50">
+                <span className="text-gray-500">{spec.label}</span>
+                <span className="font-medium">{spec.value}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

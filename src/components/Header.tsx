@@ -9,9 +9,10 @@ import { UserProfile } from "../types";
 
 interface HeaderProps {
   userProfile: UserProfile | null;
+  cartCount: number;
 }
 
-export default function Header({ userProfile }: HeaderProps) {
+export default function Header({ userProfile, cartCount }: HeaderProps) {
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
 
@@ -81,9 +82,11 @@ export default function Header({ userProfile }: HeaderProps) {
               className="p-2 text-gray-600 hover:text-primary relative"
             >
               <ShoppingCart size={24} />
-              <span className="absolute top-0 right-0 bg-primary text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">
-                0
-              </span>
+              {cartCount > 0 && (
+                <span className="absolute top-0 right-0 bg-primary text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">
+                  {cartCount}
+                </span>
+              )}
             </motion.button>
           </Link>
 
@@ -107,8 +110,9 @@ export default function Header({ userProfile }: HeaderProps) {
               <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white font-bold text-xs">
                 {userProfile.displayName?.[0] || userProfile.email[0].toUpperCase()}
               </div>
-              <div className="text-[10px] leading-tight">
-                <p className="font-bold text-gray-900 truncate max-w-[80px]">{userProfile.displayName || 'User'}</p>
+              <div className="text-[10px] leading-tight max-w-[120px]">
+                <p className="font-bold text-gray-900 truncate">{userProfile.displayName || 'User'}</p>
+                <p className="text-gray-500 truncate">{userProfile.email}</p>
                 <p className="text-primary font-bold">{formatPrice(userProfile.walletBalance)}</p>
               </div>
             </div>

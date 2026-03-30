@@ -1,30 +1,20 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { Trash2, ShoppingBag, ArrowRight, ChevronLeft } from "lucide-react";
 import { formatPrice } from "../lib/utils";
+import { CartItem } from "../types";
 
-export default function Cart() {
-  // Mock cart data
-  const [items, setItems] = useState([
-    { id: "1", title: "Premium Wireless Earbuds", price_rmb: 85, quantity: 1, image: "https://picsum.photos/seed/p1/200/200" },
-    { id: "2", title: "Smart Watch Series 8", price_rmb: 150, quantity: 2, image: "https://picsum.photos/seed/p2/200/200" },
-  ]);
+interface CartProps {
+  cart: CartItem[];
+  updateQuantity: (id: string, delta: number) => void;
+  removeFromCart: (id: string) => void;
+}
 
-  const subtotal = items.reduce((acc, item) => acc + (item.price_rmb * item.quantity), 0);
+export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps) {
+  const subtotal = cart.reduce((acc, item) => acc + (item.price_rmb * item.quantity), 0);
   const shipping = 500; // Mock shipping cost
 
-  const updateQuantity = (id: string, delta: number) => {
-    setItems(items.map(item => 
-      item.id === id ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item
-    ));
-  };
-
-  const removeItem = (id: string) => {
-    setItems(items.filter(item => item.id !== id));
-  };
-
-  if (items.length === 0) {
+  if (cart.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-6">
         <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center text-gray-400">
@@ -44,7 +34,7 @@ export default function Cart() {
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Your Cart ({items.length})</h1>
+        <h1 className="text-3xl font-bold">Your Cart ({cart.length})</h1>
         <Link to="/" className="text-primary font-bold flex items-center gap-2 hover:underline">
           <ChevronLeft size={20} />
           Add More Products
@@ -54,7 +44,7 @@ export default function Cart() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Items List */}
         <div className="lg:col-span-2 space-y-4">
-          {items.map(item => (
+          {cart.map(item => (
             <motion.div 
               key={item.id}
               layout
@@ -88,7 +78,7 @@ export default function Cart() {
                   </div>
                   
                   <button 
-                    onClick={() => removeItem(item.id)}
+                    onClick={() => removeFromCart(item.id)}
                     className="text-red-400 hover:text-red-600 p-2 transition-colors"
                   >
                     <Trash2 size={20} />

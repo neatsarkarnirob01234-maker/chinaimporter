@@ -11,24 +11,22 @@ import { useNavigate } from "react-router-dom";
 
 interface CheckoutProps {
   userProfile: UserProfile | null;
+  cart: CartItem[];
+  clearCart: () => void;
 }
 
-export default function Checkout({ userProfile }: CheckoutProps) {
+export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps) {
   const navigate = useNavigate();
   const [paymentType, setPaymentType] = useState<'Full' | 'Partial'>('Full');
   const [paymentMethod, setPaymentMethod] = useState<'bKash' | 'Nagad' | 'Bank'>('bKash');
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionId, setTransactionId] = useState("");
-  const [address, setAddress] = useState({ name: "", phone: "", detail: "" });
+  const [paymentProof, setPaymentProof] = useState<string | null>(null);
+  const [address, setAddress] = useState({ name: "", phone: "", email: "", detail: "" });
 
-  // Mock cart items (in a real app, these would come from a cart context)
-  const cartItems: CartItem[] = [
-    { id: "1", title: "Premium Wireless Earbuds", price_rmb: 85, quantity: 1, image: "https://picsum.photos/seed/p1/100/100", source_url: "https://1688.com/1" }
-  ];
-
-  const subtotalRMB = cartItems.reduce((acc, item) => acc + (item.price_rmb * item.quantity), 0);
-  const exchangeRate = 15.5;
+  const subtotalRMB = cart.reduce((acc, item) => acc + (item.price_rmb * item.quantity), 0);
+  const exchangeRate = 18.0;
   const shippingBDT = 500;
   const totalBDT = (subtotalRMB * exchangeRate) + shippingBDT;
   const partialAmount = totalBDT * 0.7;
@@ -39,7 +37,12 @@ export default function Checkout({ userProfile }: CheckoutProps) {
       navigate("/login");
       return;
     }
-    if (!address.name || !address.phone || !address.detail) {
+    if (cart.length === 0) {
+      toast.error("Your cart is empty");
+      navigate("/");
+      return;
+    }
+    if (!address.name || !address.phone || !address.email || !address.detail) {
       toast.error("Please fill in the shipping address");
       return;
     }
@@ -51,18 +54,28 @@ export default function Checkout({ userProfile }: CheckoutProps) {
     e.preventDefault();
     if (!userProfile) return;
     
+    if (!transactionId) {
+      toast.error("Please enter Transaction ID");
+      return;
+    }
+    if (!paymentProof) {
+      toast.error("Please upload payment screenshot");
+      return;
+    }
+    
     setIsSubmitting(true);
     
     try {
       const orderData = {
         userId: userProfile.uid,
-        items: cartItems,
+        userEmail: userProfile.email,
+        items: cart,
         totalAmount: totalBDT,
         paidAmount: paymentType === 'Full' ? totalBDT : partialAmount,
         paymentType,
         status: 'Order Placed',
         transactionId,
-        paymentProof: "https://picsum.photos/seed/proof/400/600", // Placeholder for actual upload
+        paymentProof: paymentProof,
         shippingAddress: address,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -70,6 +83,7 @@ export default function Checkout({ userProfile }: CheckoutProps) {
 
       const docRef = await addDoc(collection(db, "orders"), orderData);
       
+      clearCart();
       setIsSubmitting(false);
       setStep(3);
       confetti({
@@ -104,8 +118,18 @@ export default function Checkout({ userProfile }: CheckoutProps) {
           <p className="text-sm text-gray-500">Status: <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-lg font-bold">Pending Verification</span></p>
         </div>
         <div className="flex gap-4 w-full">
-          <button className="flex-1 bg-primary text-white h-14 rounded-2xl font-bold shadow-xl">Track Order</button>
-          <button className="flex-1 border-2 border-gray-200 h-14 rounded-2xl font-bold">Return to Home</button>
+          <button 
+            onClick={() => navigate("/dashboard")}
+            className="flex-1 bg-primary text-white h-14 rounded-2xl font-bold shadow-xl hover:bg-orange-600 transition-all"
+          >
+            Track Order
+          </button>
+          <button 
+            onClick={() => navigate("/")}
+            className="flex-1 border-2 border-gray-200 h-14 rounded-2xl font-bold hover:bg-gray-50 transition-all"
+          >
+            Return to Home
+          </button>
         </div>
       </div>
     );
@@ -145,6 +169,16 @@ export default function Checkout({ userProfile }: CheckoutProps) {
                       className="w-full bg-gray-50 h-12 px-4 rounded-xl outline-none focus:ring-2 ring-primary" 
                       value={address.phone}
                       onChange={e => setAddress({...address, phone: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-600">Email Address</label>
+                    <input 
+                      type="email" 
+                      placeholder="example@mail.com" 
+                      className="w-full bg-gray-50 h-12 px-4 rounded-xl outline-none focus:ring-2 ring-primary" 
+                      value={address.email}
+                      onChange={e => setAddress({...address, email: e.target.value})}
                     />
                   </div>
                   <div className="sm:col-span-2 space-y-2">
@@ -238,10 +272,48 @@ export default function Checkout({ userProfile }: CheckoutProps) {
                 
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-gray-600">Upload Payment Screenshot</label>
-                  <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center space-y-2 hover:border-primary transition-colors cursor-pointer">
-                    <Upload className="mx-auto text-gray-400" size={32} />
-                    <p className="text-sm text-gray-500">Click or drag file here</p>
-                    <p className="text-[10px] text-gray-400">JPG, PNG (Max 2MB)</p>
+                  <div className="relative">
+                    <input 
+                      type="file" 
+                      accept="image/*"
+                      className="hidden" 
+                      id="payment-upload"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 2 * 1024 * 1024) {
+                            toast.error("File size must be less than 2MB");
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setPaymentProof(reader.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                    <label 
+                      htmlFor="payment-upload"
+                      className={`border-2 border-dashed rounded-2xl p-8 text-center space-y-2 transition-colors cursor-pointer block ${
+                        paymentProof ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-primary'
+                      }`}
+                    >
+                      {paymentProof ? (
+                        <div className="space-y-2">
+                          <CheckCircle2 className="mx-auto text-green-500" size={32} />
+                          <p className="text-sm text-green-700 font-bold">Screenshot Uploaded</p>
+                          <img src={paymentProof} alt="Preview" className="w-20 h-20 object-cover mx-auto rounded-lg border border-green-200" />
+                          <p className="text-[10px] text-green-600">Click to change</p>
+                        </div>
+                      ) : (
+                        <>
+                          <Upload className="mx-auto text-gray-400" size={32} />
+                          <p className="text-sm text-gray-500">Click to upload screenshot</p>
+                          <p className="text-[10px] text-gray-400">JPG, PNG (Max 2MB)</p>
+                        </>
+                      )}
+                    </label>
                   </div>
                 </div>
 
