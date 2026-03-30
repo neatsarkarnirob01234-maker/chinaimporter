@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: uid, email, displayName, walletBalance, holdBalance, role
+    //
+    // Collection: products
+    // Fields: id, title, price_rmb, image, source_url, category, createdAt
+    //
+    // Collection: orders
+    // Fields: id, userId, items, totalAmount, paidAmount, paymentType, status, paymentProof, transactionId, createdAt, updatedAt, invoiceUrl
+    //
+    // Collection: refundRequests
+    // Fields: id, userId, amount, status, gatewayCharge, payoutTransactionId, createdAt
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "neatsarkarnirob01234@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // User Rules
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && request.resource.data.role == 'user';
+      allow update: if isAdmin() || (isOwner(userId) && 
+        request.resource.data.role == resource.data.role && 
+        request.resource.data.holdBalance == resource.data.holdBalance &&
+        (request.resource.data.walletBalance == resource.data.walletBalance || 
+         (request.resource.data.walletBalance < resource.data.walletBalance && 
+          existsAfter(/databases/$(database)/documents/refundRequests/$(request.resource.data.lastRefundId)))));
+    }
+
+    // Product Rules
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Order Rules
+    match /orders/{orderId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.status == resource.data.status);
+    }
+
+    // Refund Request Rules
+    match /refundRequests/{requestId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin();
+    }
+  }
+}

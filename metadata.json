@@ -1,0 +1,9 @@
+{
+  "name": "China-BD Sourcing Pro",
+  "description": "Premium China-to-Bangladesh sourcing platform with 1688/Alibaba integration, real-time tracking, and split payment system.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

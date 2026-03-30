@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user information and wallet balance.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "walletBalance": { "type": "number" },
+        "holdBalance": { "type": "number" },
+        "role": { "type": "string", "enum": ["user", "admin"] }
+      },
+      "required": ["uid", "email", "walletBalance", "holdBalance", "role"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Products sourced from China.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "price_rmb": { "type": "number" },
+        "image": { "type": "string" },
+        "source_url": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "price_rmb", "image", "source_url"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer orders.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "paymentType": { "type": "string", "enum": ["Full", "Partial"] },
+        "status": { "type": "string", "enum": ["Order Placed", "Confirmed", "Purchased", "BD Warehouse", "Delivered", "Cancelled"] },
+        "paymentProof": { "type": "string" },
+        "transactionId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "invoiceUrl": { "type": "string" }
+      },
+      "required": ["id", "userId", "items", "totalAmount", "paidAmount", "status", "createdAt"]
+    },
+    "RefundRequest": {
+      "title": "Refund Request",
+      "description": "Requests for wallet withdrawal.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "Completed", "Cancelled"] },
+        "gatewayCharge": { "type": "number" },
+        "payoutTransactionId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "amount", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "User profiles."
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Available products."
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer orders."
+    },
+    "/refundRequests/{requestId}": {
+      "schema": "RefundRequest",
+      "description": "Wallet withdrawal requests."
+    }
+  }
+}
