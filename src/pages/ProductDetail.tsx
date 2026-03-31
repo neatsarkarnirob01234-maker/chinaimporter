@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { ShoppingCart, ShieldCheck, Truck, CreditCard, Star, ChevronLeft, ExternalLink, Loader2 } from "lucide-react";
 import { formatPrice } from "../lib/utils";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import { Product, CartItem } from "../types";
 import { toast } from "sonner";
@@ -20,26 +20,24 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchProduct = async () => {
-      if (!id) return;
-      setLoading(true);
-      try {
-        const docRef = doc(db, "products", id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setProduct({ id: docSnap.id, ...docSnap.data() } as Product);
-        } else {
-          toast.error("Product not found");
-          navigate("/");
-        }
-      } catch (error) {
-        console.error("Error fetching product:", error);
-        toast.error("Failed to load product");
-      } finally {
-        setLoading(false);
+    if (!id) return;
+    setLoading(true);
+    
+    const unsubscribe = onSnapshot(doc(db, "products", id), (docSnap) => {
+      if (docSnap.exists()) {
+        setProduct({ id: docSnap.id, ...docSnap.data() } as Product);
+      } else {
+        toast.error("Product not found");
+        navigate("/");
       }
-    };
-    fetchProduct();
+      setLoading(false);
+    }, (error) => {
+      console.error("Error fetching product:", error);
+      toast.error("Failed to load product");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [id, navigate]);
 
   const handleAddToCart = () => {
@@ -86,6 +84,9 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
               alt={product.title}
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/400/400";
+              }}
             />
           </motion.div>
           <div className="grid grid-cols-4 gap-4">

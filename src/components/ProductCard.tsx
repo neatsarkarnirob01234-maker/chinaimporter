@@ -23,6 +23,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           alt={product.title}
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
           referrerPolicy="no-referrer"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/400/400";
+          }}
         />
         <div className="absolute top-2 left-2 bg-primary text-white text-[10px] font-bold px-2 py-1 rounded-lg shadow-lg">
           CHINA DIRECT

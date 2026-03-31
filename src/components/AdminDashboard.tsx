@@ -19,7 +19,15 @@ import {
   Loader2,
   Image as ImageIcon,
   Video,
-  List
+  List,
+  Building2,
+  CheckSquare,
+  CheckCheck,
+  Banknote,
+  ShoppingCart,
+  Wallet,
+  LayoutDashboard,
+  Settings
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
@@ -42,14 +50,29 @@ import { Order, OrderStatus, RefundRequest, UserProfile, Product } from '../type
 import { formatPrice } from '../lib/utils';
 import { toast } from 'sonner';
 
-type AdminTab = 'pending-confirm' | 'pending-purchase' | 'payments' | 'refunds' | 'sourcing' | 'users' | 'all-orders' | 'products';
+type AdminTab = 
+  | 'dashboard'
+  | 'bank-payments' 
+  | 'approved-bank-payments' 
+  | 'refund-list' 
+  | 'already-refunded' 
+  | 'pending-rmb' 
+  | 'all-orders' 
+  | 'old-balance'
+  | 'users' 
+  | 'products' 
+  | 'sourcing'
+  | 'pending-confirm'
+  | 'pending-purchase'
+  | 'payments'
+  | 'refunds';
 
 interface AdminDashboardProps {
   userProfile: UserProfile | null;
 }
 
 export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<AdminTab>('pending-confirm');
+  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [orders, setOrders] = useState<Order[]>([]);
   const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -91,6 +114,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         contents: `Extract product details from this URL: ${sourcingForm.source_url}. 
         Return JSON with: title, price_rmb (number), image (url), description, video (url or empty), 
         variants (array of {name: string, options: string[]}), category.
+        IMPORTANT: Ensure the image URL is a direct link to the main product image (usually ends in .jpg or .png). 
         If you cannot access the URL, provide realistic mock data based on the URL context.`,
         config: {
           responseMimeType: "application/json",
@@ -119,6 +143,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       });
 
       const data = JSON.parse(response.text);
+      
+      // Ensure image URL has protocol
+      if (data.image && data.image.startsWith('//')) {
+        data.image = 'https:' + data.image;
+      }
+
       setSourcingForm(prev => ({
         ...prev,
         ...data,
@@ -251,6 +281,19 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     }
   };
 
+  const confirmBankPayment = async (order: Order) => {
+    try {
+      await updateDoc(doc(db, 'orders', order.id), {
+        paidAmount: order.totalAmount,
+        status: 'Confirmed',
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Bank payment confirmed and order status updated');
+    } catch (error) {
+      toast.error('Failed to confirm bank payment');
+    }
+  };
+
   const handleSourcingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -314,99 +357,182 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   const filteredOrders = orders.filter(order => {
     if (activeTab === 'all-orders') return true;
     if (activeTab === 'pending-confirm') return order.status === 'Order Placed';
-    if (activeTab === 'pending-purchase') return order.status === 'Confirmed';
-    if (activeTab === 'payments') return order.paymentProof && order.status !== 'Cancelled';
+    if (activeTab === 'pending-purchase' || activeTab === 'pending-rmb') return order.status === 'Confirmed';
+    if (activeTab === 'payments' || activeTab === 'bank-payments') return order.paymentProof && order.status === 'Order Placed';
+    if (activeTab === 'approved-bank-payments') return order.paymentProof && order.status !== 'Order Placed' && order.status !== 'Cancelled';
     return false;
   });
 
+  const filteredRefunds = refundRequests.filter(refund => {
+    if (activeTab === 'refund-list' || activeTab === 'refunds') return refund.status === 'Pending';
+    if (activeTab === 'already-refunded') return refund.status === 'Completed';
+    return true;
+  });
+
+  const sidebarItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'products', label: 'Products', icon: ShoppingBag },
+    { id: 'sourcing', label: 'Sourcing', icon: Plus },
+    { id: 'users', label: 'Users', icon: Users },
+    { type: 'header', label: 'Accounts' },
+    { id: 'bank-payments', label: 'Bank Payment', icon: Building2 },
+    { id: 'approved-bank-payments', label: 'Approved Bank Payment', icon: CheckSquare },
+    { id: 'refund-list', label: 'Refund List', icon: RefreshCcw },
+    { id: 'already-refunded', label: 'Already Refunded', icon: CheckCheck },
+    { id: 'pending-rmb', label: 'Pending RMB Payment', icon: Banknote },
+    { id: 'all-orders', label: 'All Orders', icon: ShoppingCart },
+    { id: 'old-balance', label: 'Old Balance', icon: Wallet },
+  ];
+
   return (
     <>
-      <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4">
-          <h1 className="text-2xl font-bold text-gray-900">Admin Control Center</h1>
-          <div className="flex flex-wrap gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-200">
-            {[
-              { id: 'all-orders', label: 'All Orders', icon: FileText },
-              { id: 'pending-confirm', label: 'Pending Confirm', icon: Clock },
-              { id: 'pending-purchase', label: 'Pending Purchase', icon: ShoppingBag },
-              { id: 'payments', label: 'Payments', icon: CreditCard },
-              { id: 'refunds', label: 'Refunds', icon: RefreshCcw },
-              { id: 'users', label: 'Users', icon: Users },
-              { id: 'products', label: 'Products', icon: ShoppingBag },
-              { id: 'sourcing', label: 'Sourcing', icon: Plus },
-            ].map(tab => (
+      <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white border-r border-gray-200 hidden lg:flex flex-col sticky top-0 h-screen">
+        <div className="p-6 border-b border-gray-100">
+          <h2 className="text-xl font-bold text-gray-900">Admin Panel</h2>
+        </div>
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+          {sidebarItems.map((item, idx) => {
+            if (item.type === 'header') {
+              return (
+                <p key={idx} className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-4 pt-6 pb-2">
+                  {item.label}
+                </p>
+              );
+            }
+            const Icon = item.icon!;
+            return (
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as AdminTab)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  activeTab === tab.id 
-                    ? 'bg-primary text-white shadow-md' 
-                    : 'text-gray-500 hover:bg-gray-100'
+                key={item.id}
+                onClick={() => setActiveTab(item.id as AdminTab)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  activeTab === item.id 
+                    ? 'bg-primary/10 text-primary' 
+                    : 'text-gray-500 hover:bg-gray-50'
                 }`}
               >
-                <tab.icon size={16} />
-                {tab.label}
+                <Icon size={18} />
+                {item.label}
               </button>
-            ))}
-          </div>
-        </div>
+            );
+          })}
+        </nav>
+      </aside>
 
-        <div className="grid grid-cols-1 gap-6">
-          {activeTab === 'users' ? (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-gray-50 border-b border-gray-100">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">User</th>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Wallet</th>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Hold</th>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Role</th>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {users.map(user => (
-                      <tr key={user.uid} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500 font-bold">
-                              {user.displayName?.[0] || user.email[0].toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="font-bold text-gray-900">{user.displayName || 'User'}</p>
-                              <p className="text-xs text-gray-500">{user.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 font-bold text-gray-900">{formatPrice(user.walletBalance)}</td>
-                        <td className="px-6 py-4 font-bold text-gray-500">{formatPrice(user.holdBalance)}</td>
-                        <td className="px-6 py-4">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
-                            user.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-600'
-                          }`}>
-                            {user.role.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button 
-                            onClick={() => {
-                              setSelectedUser(user);
-                              setUserEditData({ walletBalance: user.walletBalance, holdBalance: user.holdBalance, role: user.role });
-                            }}
-                            className="p-2 text-gray-400 hover:text-primary transition-colors"
-                          >
-                            <Edit2 size={18} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Mobile Header */}
+        <header className="lg:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+          <h2 className="font-bold text-gray-900">Admin Panel</h2>
+          <select 
+            className="text-sm border-none bg-gray-50 rounded-lg px-2 py-1"
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value as AdminTab)}
+          >
+            {sidebarItems.filter(i => i.id).map(i => (
+              <option key={i.id} value={i.id}>{i.label}</option>
+            ))}
+          </select>
+        </header>
+
+        <main className="p-4 lg:p-8 overflow-y-auto">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {sidebarItems.find(i => i.id === activeTab)?.label || 'Admin Control Center'}
+                </h1>
+                <p className="text-sm text-gray-500">Manage your business operations efficiently</p>
               </div>
             </div>
-          ) : activeTab === 'products' ? (
+
+            <div className="grid grid-cols-1 gap-6">
+              {activeTab === 'dashboard' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-1">Total Orders</p>
+                    <p className="text-2xl font-bold text-gray-900">{orders.length}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-1">Pending Confirmation</p>
+                    <p className="text-2xl font-bold text-orange-600">{orders.filter(o => o.status === 'Order Placed').length}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-1">Total Users</p>
+                    <p className="text-2xl font-bold text-gray-900">{users.length}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-1">Total Wallet</p>
+                    <p className="text-2xl font-bold text-emerald-600">{formatPrice(users.reduce((acc, u) => acc + (u.walletBalance || 0), 0))}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-1">Total Hold</p>
+                    <p className="text-2xl font-bold text-amber-600">{formatPrice(users.reduce((acc, u) => acc + (u.holdBalance || 0), 0))}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-1">Pending Refunds</p>
+                    <p className="text-2xl font-bold text-red-600">{refundRequests.filter(r => r.status === 'Pending').length}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <p className="text-xs font-bold text-gray-400 uppercase mb-1">Total Products</p>
+                    <p className="text-2xl font-bold text-gray-900">{products.length}</p>
+                  </div>
+                </div>
+              ) : activeTab === 'users' || activeTab === 'old-balance' ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-gray-50 border-b border-gray-100">
+                        <tr>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">User</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Wallet</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Hold</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Role</th>
+                          <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {users.filter(u => activeTab === 'old-balance' ? (u.holdBalance > 0 || u.walletBalance > 0) : true).map(user => (
+                          <tr key={user.uid} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500 font-bold">
+                                  {user.displayName?.[0] || user.email[0].toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="font-bold text-gray-900">{user.displayName || 'User'}</p>
+                                  <p className="text-xs text-gray-500">{user.email}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 font-bold text-gray-900">{formatPrice(user.walletBalance)}</td>
+                            <td className="px-6 py-4 font-bold text-gray-500">{formatPrice(user.holdBalance)}</td>
+                            <td className="px-6 py-4">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
+                                user.role === 'admin' ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {user.role.toUpperCase()}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <button 
+                                onClick={() => {
+                                  setSelectedUser(user);
+                                  setUserEditData({ walletBalance: user.walletBalance, holdBalance: user.holdBalance, role: user.role });
+                                }}
+                                className="p-2 text-gray-400 hover:text-primary transition-colors"
+                              >
+                                <Edit2 size={18} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : activeTab === 'products' ? (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
@@ -440,12 +566,22 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                           <td className="px-6 py-4 font-bold text-gray-900">¥{product.price_rmb}</td>
                           <td className="px-6 py-4 text-sm text-gray-500">{product.category}</td>
                           <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={() => deleteDocument('products', product.id)}
-                              className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => window.open(`/product/${product.id}`, '_blank')}
+                                className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                                title="View on Site"
+                              >
+                                <ExternalLink size={18} />
+                              </button>
+                              <button 
+                                onClick={() => deleteDocument('products', product.id)}
+                                className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                                title="Delete Product"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -578,15 +714,15 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                 )}
               </div>
             </motion.div>
-          ) : activeTab === 'refunds' ? (
+          ) : activeTab === 'refunds' || activeTab === 'refund-list' || activeTab === 'already-refunded' ? (
             <div className="space-y-4">
-              {refundRequests.length === 0 ? (
+              {filteredRefunds.length === 0 ? (
                 <div className="bg-white p-12 rounded-3xl border border-gray-100 text-center space-y-4">
                   <RefreshCcw className="mx-auto text-gray-300 animate-spin-slow" size={48} />
                   <p className="text-gray-500 font-bold">No refund requests found</p>
                 </div>
               ) : (
-                refundRequests.map(request => (
+                filteredRefunds.map(request => (
                   <div key={request.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
@@ -726,7 +862,15 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             {/* Actions */}
                             <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-gray-100">
                               <div className="flex gap-2">
-                                {order.status === 'Order Placed' && (
+                                {activeTab === 'bank-payments' && order.paidAmount === 0 && (
+                                  <button 
+                                    onClick={() => confirmBankPayment(order)}
+                                    className="bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-orange-700 transition-all flex items-center gap-2"
+                                  >
+                                    <CheckCircle size={16} /> Confirm Payment
+                                  </button>
+                                )}
+                                {order.status === 'Order Placed' && activeTab !== 'bank-payments' && (
                                   <button 
                                     onClick={() => updateOrderStatus(order.id, 'Confirmed')}
                                     className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-green-700 transition-all flex items-center gap-2"
@@ -776,7 +920,9 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
           )}
         </div>
       </div>
-    </div>
+    </main>
+  </div>
+</div>
 
       {/* Order Details Modal */}
       <AnimatePresence>
