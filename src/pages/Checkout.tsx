@@ -4,7 +4,7 @@ import { CreditCard, Truck, ShieldCheck, Upload, CheckCircle2, AlertCircle, Shop
 import { formatPrice, formatBDT } from "../lib/utils";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
-import { collection, addDoc, serverTimestamp, doc, onSnapshot } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, onSnapshot, runTransaction, increment } from "firebase/firestore";
 import { db } from "../firebase";
 import { UserProfile, CartItem } from "../types";
 import { useNavigate } from "react-router-dom";
@@ -29,6 +29,8 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
     nagad: '01789-456123',
     bank: 'Account Name: ...\nAccount Number: ...'
   });
+
+  const [orderNumber, setOrderNumber] = useState<number | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'settings', 'payment'), (doc) => {
@@ -82,22 +84,40 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
     setIsSubmitting(true);
     
     try {
-      const orderData = {
-        userId: userProfile.uid,
-        userEmail: userProfile.email,
-        items: cart,
-        totalAmount: totalBDT,
-        paidAmount: paymentType === 'Full' ? totalBDT : partialAmount,
-        paymentType,
-        status: 'Order Placed',
-        transactionId,
-        paymentProof: paymentProof,
-        shippingAddress: address,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
+      let nextOrderNumber = 1001;
 
-      const docRef = await addDoc(collection(db, "orders"), orderData);
+      await runTransaction(db, async (transaction) => {
+        const counterRef = doc(db, 'settings', 'counters');
+        const counterDoc = await transaction.get(counterRef);
+        
+        if (!counterDoc.exists()) {
+          transaction.set(counterRef, { orderCount: 1001 });
+          nextOrderNumber = 1001;
+        } else {
+          nextOrderNumber = (counterDoc.data().orderCount || 1000) + 1;
+          transaction.update(counterRef, { orderCount: nextOrderNumber });
+        }
+
+        const orderData = {
+          userId: userProfile.uid,
+          userEmail: userProfile.email,
+          items: cart,
+          totalAmount: totalBDT,
+          paidAmount: paymentType === 'Full' ? totalBDT : partialAmount,
+          paymentType,
+          status: 'Order Placed',
+          transactionId,
+          paymentProof: paymentProof,
+          shippingAddress: address,
+          orderNumber: nextOrderNumber,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        const newOrderRef = doc(collection(db, "orders"));
+        transaction.set(newOrderRef, orderData);
+        setOrderNumber(nextOrderNumber);
+      });
       
       clearCart();
       setIsSubmitting(false);
@@ -130,7 +150,7 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
           Your payment information has reached us. You will receive a confirmation message once verification is complete from our admin panel.
         </p>
         <div className="bg-gray-50 p-6 rounded-3xl w-full space-y-2">
-          <p className="text-sm text-gray-500">Order ID: <span className="font-bold text-gray-900">#SP-98234</span></p>
+          <p className="text-sm text-gray-500">Order ID: <span className="font-bold text-gray-900">#{orderNumber || '...'}</span></p>
           <p className="text-sm text-gray-500">Status: <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-lg font-bold">Pending Verification</span></p>
         </div>
         <div className="flex gap-4 w-full">

@@ -226,7 +226,8 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                     <div className="p-6 border-b border-gray-50 flex flex-wrap items-center justify-between gap-4">
                       <div className="space-y-1">
                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Order ID</p>
-                        <p className="font-bold text-gray-900">#{order.id.slice(0,8)}</p>
+                        <p className="font-bold text-primary">#{order.orderNumber || order.id.slice(0,8)}</p>
+                        <p className="text-[8px] text-gray-300 font-mono">Internal: {order.id.slice(0,8)}</p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Date</p>

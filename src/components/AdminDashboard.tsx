@@ -28,7 +28,9 @@ import {
   ShoppingCart,
   Wallet,
   LayoutDashboard,
-  Settings
+  Settings,
+  HardDrive,
+  Download
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
@@ -119,6 +121,10 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   const [banners, setBanners] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isDriveConnected, setIsDriveConnected] = useState(false);
+  const [isUploadingToDrive, setIsUploadingToDrive] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
 
   // Modal states
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -450,16 +456,43 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     }
 
     try {
-      // Check if image is a base64 string and potentially too large
-      if (sourcingForm.image.startsWith('data:image') && sourcingForm.image.length > 800000) {
-        toast.error('Image is too large. Please use a smaller image or a URL.');
-        return;
+      let mainImageUrl = sourcingForm.image;
+      let galleryUrls = sourcingForm.images || [];
+
+      if (isDriveConnected) {
+        toast.info("Uploading images to Google Drive...");
+        
+        // Upload main image if it's base64
+        if (mainImageUrl.startsWith('data:image')) {
+          mainImageUrl = await uploadToDrive(mainImageUrl, `product_${Date.now()}_main`, 'image/jpeg');
+        }
+
+        // Upload gallery images if they are base64
+        const uploadedGallery = [];
+        for (let i = 0; i < galleryUrls.length; i++) {
+          const img = galleryUrls[i];
+          if (img.startsWith('data:image')) {
+            const url = await uploadToDrive(img, `product_${Date.now()}_gallery_${i}`, 'image/jpeg');
+            uploadedGallery.push(url);
+          } else {
+            uploadedGallery.push(img);
+          }
+        }
+        galleryUrls = uploadedGallery;
+      } else {
+        // Check if image is a base64 string and potentially too large for Firestore
+        if (sourcingForm.image.startsWith('data:image') && sourcingForm.image.length > 800000) {
+          toast.error('Image is too large for database. Please connect Google Drive or use a smaller image.');
+          return;
+        }
       }
 
       const finalPriceRmb = Number(sourcingForm.price_rmb) * (1 + profitMargin / 100);
       
       await addDoc(collection(db, 'products'), {
         ...sourcingForm,
+        image: mainImageUrl,
+        images: galleryUrls,
         price_rmb: finalPriceRmb,
         price_bdt: sourcingForm.price_bdt || Math.round(finalPriceRmb * 18.0),
         createdAt: serverTimestamp()
@@ -489,14 +522,21 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     e.preventDefault();
     if (!newCategory.name) return;
     try {
+      let imageUrl = newCategory.image;
+      if (isDriveConnected && imageUrl && imageUrl.startsWith('data:image')) {
+        toast.info("Uploading category image to Google Drive...");
+        imageUrl = await uploadToDrive(imageUrl, `category_${Date.now()}`, 'image/jpeg');
+      }
+
       await addDoc(collection(db, 'categories'), {
-        name: newCategory.name,
-        sub: newCategory.sub,
+        ...newCategory,
+        image: imageUrl,
         createdAt: serverTimestamp()
       });
-      setNewCategory({ name: '', sub: [] });
+      setNewCategory({ name: '', sub: [], image: '' });
       toast.success('Category added successfully');
     } catch (error) {
+      console.error('Error adding category:', error);
       toast.error('Failed to add category');
     }
   };
@@ -524,13 +564,21 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     e.preventDefault();
     if (!newBanner.image) return;
     try {
+      let imageUrl = newBanner.image;
+      if (isDriveConnected && imageUrl.startsWith('data:image')) {
+        toast.info("Uploading banner to Google Drive...");
+        imageUrl = await uploadToDrive(imageUrl, `banner_${Date.now()}`, 'image/jpeg');
+      }
+
       await addDoc(collection(db, 'banners'), {
         ...newBanner,
+        image: imageUrl,
         createdAt: serverTimestamp()
       });
       setNewBanner({ title: '', subtitle: '', image: '', link: '', color: 'bg-primary' });
       toast.success('Banner added successfully');
     } catch (error) {
+      console.error('Error adding banner:', error);
       toast.error('Failed to add banner');
     }
   };
@@ -581,6 +629,18 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   }
 
   const filteredOrders = orders.filter(order => {
+    // Search filter
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = 
+        order.orderNumber?.toString().includes(q) ||
+        order.id.toLowerCase().includes(q) ||
+        order.userEmail?.toLowerCase().includes(q) ||
+        order.transactionId?.toLowerCase().includes(q);
+      
+      if (!matchesSearch) return false;
+    }
+
     if (activeTab === 'all-orders') return true;
     if (activeTab === 'pending-confirm') return order.status === 'Order Placed';
     if (activeTab === 'confirmed') return order.status === 'Confirmed';
@@ -613,11 +673,118 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     { id: 'products', label: 'Manage Products', icon: ShoppingBag },
     { id: 'banners', label: 'Banners', icon: ImageIcon },
     { id: 'categories', label: 'Categories', icon: List },
+    { id: 'google-drive', label: 'Google Drive', icon: HardDrive },
     { id: 'payment-settings', label: 'Payment Settings', icon: CreditCard },
     { id: 'footer-settings', label: 'Footer Settings', icon: FileText },
     { id: 'page-content', label: 'Page Content', icon: FileText },
   ];
 
+  useEffect(() => {
+    checkDriveStatus();
+  }, []);
+
+  const checkDriveStatus = async () => {
+    try {
+      const res = await fetch('/api/auth/google/status');
+      const data = await res.json();
+      setIsDriveConnected(data.connected);
+    } catch (error) {
+      console.error("Error checking drive status:", error);
+    }
+  };
+
+  const handleConnectDrive = async () => {
+    try {
+      const res = await fetch('/api/auth/google/url');
+      const { url } = await res.json();
+      const authWindow = window.open(url, 'google_auth', 'width=600,height=700');
+      
+      if (!authWindow) {
+        toast.error("Popup blocked! Please allow popups.");
+        return;
+      }
+
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
+          setIsDriveConnected(true);
+          toast.success("Google Drive connected successfully!");
+          window.removeEventListener('message', handleMessage);
+        }
+      };
+      window.addEventListener('message', handleMessage);
+    } catch (error) {
+      toast.error("Failed to connect Google Drive");
+    }
+  };
+
+  const handleBackupToDrive = async () => {
+    if (!isDriveConnected) return;
+    setIsBackingUp(true);
+    try {
+      // Collect all data from Firestore
+      const productsSnap = await getDocs(collection(db, 'products'));
+      const ordersSnap = await getDocs(collection(db, 'orders'));
+      const categoriesSnap = await getDocs(collection(db, 'categories'));
+      const bannersSnap = await getDocs(collection(db, 'banners'));
+      const usersSnap = await getDocs(collection(db, 'users'));
+
+      const backupData = {
+        products: productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        orders: ordersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        categories: categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        banners: bannersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        users: usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        timestamp: new Date().toISOString()
+      };
+
+      const res = await fetch('/api/drive/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          data: backupData, 
+          fileName: `ChinaImporter_Backup_${new Date().toISOString().split('T')[0]}.json` 
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.details || "Backup failed");
+      }
+      
+      const data = await res.json();
+      toast.success("Full database backup saved to Google Drive!");
+      window.open(data.link, '_blank');
+    } catch (error: any) {
+      console.error("Backup error:", error);
+      toast.error(`Backup failed: ${error.message}`);
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const uploadToDrive = async (base64Data: string, fileName: string, mimeType: string) => {
+    if (!isDriveConnected) return base64Data;
+    
+    setIsUploadingToDrive(true);
+    try {
+      const res = await fetch('/api/drive/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64Data, fileName, mimeType })
+      });
+      
+      if (!res.ok) throw new Error("Upload failed");
+      
+      const data = await res.json();
+      return data.directLink;
+    } catch (error) {
+      console.error("Drive upload error:", error);
+      toast.error("Failed to upload to Google Drive. Using local data instead.");
+      return base64Data;
+    } finally {
+      setIsUploadingToDrive(false);
+    }
+  };
   const handleRefreshData = () => {
     setLoading(true);
     // Snapshot listeners will handle the actual data update
@@ -763,14 +930,32 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                       value={newBanner.subtitle}
                       onChange={e => setNewBanner({...newBanner, subtitle: e.target.value})}
                     />
-                    <input 
-                      type="text" 
-                      placeholder="Image URL"
-                      className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
-                      required
-                      value={newBanner.image}
-                      onChange={e => setNewBanner({...newBanner, image: e.target.value})}
-                    />
+                    <div className="flex gap-2">
+                      <input 
+                        type="file" 
+                        id="banner-img" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => setNewBanner({...newBanner, image: reader.result as string});
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <label htmlFor="banner-img" className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-sm cursor-pointer hover:bg-gray-100 transition-all flex items-center gap-2">
+                        <ImageIcon size={16} /> {newBanner.image?.startsWith('data:image') ? 'Image Selected' : 'Upload Banner Image'}
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="Or Image URL"
+                        className="flex-1 px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
+                        value={newBanner.image?.startsWith('data:image') ? '' : newBanner.image}
+                        onChange={e => setNewBanner({...newBanner, image: e.target.value})}
+                      />
+                    </div>
                     <select 
                       className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none bg-white font-bold"
                       value={newBanner.color}
@@ -790,8 +975,8 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                       value={newBanner.link}
                       onChange={e => setNewBanner({...newBanner, link: e.target.value})}
                     />
-                    <button type="submit" className="md:col-span-2 bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition-all">
-                      Add Banner
+                    <button type="submit" disabled={isUploadingToDrive} className="md:col-span-2 bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50">
+                      {isUploadingToDrive ? 'Uploading to Drive...' : 'Add Banner'}
                     </button>
                   </form>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -838,9 +1023,28 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                       value={newCategory.sub.join(', ')}
                       onChange={e => setNewCategory({...newCategory, sub: e.target.value.split(',').map(s => s.trim()).filter(s => s)})}
                     />
-                    <button type="submit" className="bg-black text-white px-8 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all">
-                      Add Category
-                    </button>
+                    <div className="flex gap-2">
+                      <input 
+                        type="file" 
+                        id="cat-img" 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => setNewCategory({...newCategory, image: reader.result as string});
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <label htmlFor="cat-img" className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-sm cursor-pointer hover:bg-gray-100 transition-all flex items-center gap-2">
+                        <ImageIcon size={16} /> {newCategory.image ? 'Image Selected' : 'Upload Icon'}
+                      </label>
+                      <button type="submit" disabled={isUploadingToDrive} className="bg-black text-white px-8 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50">
+                        {isUploadingToDrive ? 'Uploading...' : 'Add'}
+                      </button>
+                    </div>
                   </form>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     {categories.map(cat => (
@@ -855,6 +1059,66 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                       </div>
                     ))}
                   </div>
+                </div>
+              ) : activeTab === 'google-drive' ? (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                  <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                    <HardDrive className="text-primary" /> Google Drive Integration
+                  </h2>
+                  <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 mb-8">
+                    <p className="text-blue-900 font-medium mb-4">
+                      Connect your Google Drive to store all product images, banners, and website data directly in your own cloud storage.
+                    </p>
+                    <div className="flex items-center gap-4">
+                      {isDriveConnected ? (
+                        <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100">
+                          <CheckCircle size={20} /> Connected to Google Drive
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={handleConnectDrive}
+                          className="bg-black text-white px-6 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all flex items-center gap-2"
+                        >
+                          <HardDrive size={20} /> Connect Google Drive
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-gray-900">How it works:</h3>
+                    <ul className="space-y-2 text-sm text-gray-600">
+                      <li className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 bg-primary rounded-full" />
+                        A folder named <span className="font-bold">"ChinaImporter_Assets"</span> will be created in your drive.
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 bg-primary rounded-full" />
+                        All uploaded images will be stored there and automatically shared as "Public" for display.
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 bg-primary rounded-full" />
+                        This ensures you own all your data and never lose your images.
+                      </li>
+                    </ul>
+                  </div>
+
+                  {isDriveConnected && (
+                    <div className="mt-12 pt-8 border-t border-gray-100">
+                      <h3 className="font-bold text-gray-900 mb-4">Database Backup</h3>
+                      <p className="text-sm text-gray-500 mb-6">
+                        Export all your current website data (Products, Orders, Users, etc.) to a JSON file in your Google Drive.
+                      </p>
+                      <button 
+                        onClick={handleBackupToDrive}
+                        disabled={isBackingUp}
+                        className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {isBackingUp ? <Loader2 className="animate-spin" size={20} /> : <Download size={20} />}
+                        {isBackingUp ? 'Backing up...' : 'Backup All Data to Drive'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : activeTab === 'payment-settings' ? (
                 <div className="max-w-2xl mx-auto space-y-8">
@@ -1317,9 +1581,10 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                       </button>
                       <button 
                         type="submit"
-                        className="flex-[2] bg-primary text-white py-4 rounded-2xl font-bold shadow-xl shadow-orange-200 hover:bg-orange-600 transition-all transform hover:-translate-y-1"
+                        disabled={isUploadingToDrive}
+                        className="flex-[2] bg-primary text-white py-4 rounded-2xl font-bold shadow-xl shadow-orange-200 hover:bg-orange-600 transition-all transform hover:-translate-y-1 disabled:opacity-50"
                       >
-                        Add to Site
+                        {isUploadingToDrive ? 'Uploading to Drive...' : 'Add to Site'}
                       </button>
                     </div>
                   </form>
@@ -1399,17 +1664,36 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
               )}
             </div>
           ) : (
-            <div className="space-y-4">
-              {filteredOrders.length === 0 ? (
-                <div className="bg-white p-12 rounded-3xl border border-gray-100 text-center space-y-4">
-                  <FileText className="mx-auto text-gray-300" size={48} />
-                  <p className="text-gray-500 font-bold">No orders found in this category</p>
-                </div>
-              ) : filteredOrders.map(order => {
-                  const remainingAmount = order.totalAmount - order.paidAmount;
-                  const paidPercentage = Math.round((order.paidAmount / order.totalAmount) * 100);
-                  
-                  return (
+            <div className="space-y-6">
+              {/* Search Bar */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex items-center gap-3">
+                <Search className="text-gray-400" size={20} />
+                <input 
+                  type="text" 
+                  placeholder="Search by Order ID, Email, or Transaction ID..."
+                  className="flex-1 bg-transparent outline-none text-sm font-medium"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600">
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                {filteredOrders.length === 0 ? (
+                  <div className="bg-white p-12 rounded-3xl border border-gray-100 text-center space-y-4">
+                    <FileText className="mx-auto text-gray-300" size={48} />
+                    <p className="text-gray-500 font-bold">No orders found in this category</p>
+                  </div>
+                ) : (
+                  filteredOrders.map(order => {
+                    const remainingAmount = order.totalAmount - order.paidAmount;
+                    const paidPercentage = Math.round((order.paidAmount / order.totalAmount) * 100);
+                    
+                    return (
                     <div key={order.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                         <div className="flex flex-col lg:flex-row gap-6">
                           {/* Product Image */}
@@ -1427,7 +1711,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             <div className="flex flex-wrap items-start justify-between gap-4">
                               <div>
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-sm font-mono text-gray-400">ID: {order.id}</span>
+                                  <span className="text-sm font-bold text-primary">ID: #{order.orderNumber || order.id.slice(0, 8)}</span>
                                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                     order.status === 'Order Placed' ? 'bg-blue-100 text-blue-700' :
                                     order.status === 'Confirmed' ? 'bg-green-100 text-green-700' :
@@ -1583,7 +1867,9 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                         </div>
                       </div>
                     );
-                  })}
+                  })
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1605,7 +1891,8 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <h2 className="text-2xl font-bold">Order Details</h2>
-                  <p className="text-sm text-gray-500 font-mono">ID: {selectedOrder.id}</p>
+                  <p className="text-sm text-primary font-bold">ID: #{selectedOrder.orderNumber || selectedOrder.id.slice(0, 8)}</p>
+                  <p className="text-[10px] text-gray-400 font-mono">Internal ID: {selectedOrder.id}</p>
                 </div>
                 <button 
                   onClick={() => setSelectedOrder(null)}
