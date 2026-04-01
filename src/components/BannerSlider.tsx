@@ -1,40 +1,71 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { ChevronLeft, ChevronRight, ShieldCheck, Truck, CreditCard } from "lucide-react";
-
-const slides = [
-  {
-    title: "Import Directly from China",
-    subtitle: "Best quality at the lowest price",
-    image: "https://picsum.photos/seed/banner1/1200/400",
-    icon: ShieldCheck,
-    color: "bg-primary",
-  },
-  {
-    title: "Fast Delivery Guaranteed",
-    subtitle: "Directly to your doorstep",
-    image: "https://picsum.photos/seed/banner2/1200/400",
-    icon: Truck,
-    color: "bg-secondary",
-  },
-  {
-    title: "Secure Payment System",
-    subtitle: "Pay with bKash, Nagad & Bank",
-    image: "https://picsum.photos/seed/banner3/1200/400",
-    icon: CreditCard,
-    color: "bg-green-600",
-  },
-];
+import { ChevronLeft, ChevronRight, ShieldCheck, Truck, CreditCard, Image as ImageIcon } from "lucide-react";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 
 export default function BannerSlider() {
   const [current, setCurrent] = useState(0);
+  const [slides, setSlides] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const q = query(collection(db, "banners"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedBanners = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      if (fetchedBanners.length > 0) {
+        setSlides(fetchedBanners);
+      } else {
+        // Fallback to default slides
+        setSlides([
+          {
+            title: "Import Directly from China",
+            subtitle: "Best quality at the lowest price",
+            image: "https://picsum.photos/seed/banner1/1200/400",
+            icon: "ShieldCheck",
+            color: "bg-primary",
+          },
+          {
+            title: "Fast Delivery Guaranteed",
+            subtitle: "Directly to your doorstep",
+            image: "https://picsum.photos/seed/banner2/1200/400",
+            icon: "Truck",
+            color: "bg-secondary",
+          },
+          {
+            title: "Secure Payment System",
+            subtitle: "Pay with bKash, Nagad & Bank",
+            image: "https://picsum.photos/seed/banner3/1200/400",
+            icon: "CreditCard",
+            color: "bg-green-600",
+          },
+        ]);
+      }
+      setLoading(false);
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'banners'));
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (slides.length === 0) return;
     const timer = setInterval(() => {
       setCurrent((prev) => (prev + 1) % slides.length);
     }, 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [slides]);
+
+  if (loading || slides.length === 0) {
+    return <div className="w-full h-[300px] sm:h-[400px] bg-gray-100 animate-pulse rounded-3xl" />;
+  }
+
+  const getIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'ShieldCheck': return ShieldCheck;
+      case 'Truck': return Truck;
+      case 'CreditCard': return CreditCard;
+      default: return ImageIcon;
+    }
+  };
 
   return (
     <div className="relative w-full h-[300px] sm:h-[400px] rounded-3xl overflow-hidden group shadow-xl">
@@ -56,13 +87,13 @@ export default function BannerSlider() {
           <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent flex items-center px-8 sm:px-16">
             <div className="max-w-lg text-white">
               {(() => {
-                const Icon = slides[current].icon;
+                const Icon = getIcon(slides[current].icon);
                 return (
                   <motion.div
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ delay: 0.2 }}
-                    className={slides[current].color + " w-12 h-12 rounded-2xl flex items-center justify-center mb-4 shadow-lg"}
+                    className={(slides[current].color || "bg-primary") + " w-12 h-12 rounded-2xl flex items-center justify-center mb-4 shadow-lg"}
                   >
                     <Icon size={24} />
                   </motion.div>

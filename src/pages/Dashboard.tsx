@@ -30,7 +30,7 @@ import {
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
-import { formatPrice } from "../lib/utils";
+import { formatPrice, formatBDT } from "../lib/utils";
 import { Order, OrderStatus, UserProfile, RefundRequest } from "../types";
 import OrderTracking from "../components/OrderTracking";
 import { toast } from "sonner";
@@ -244,7 +244,7 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Total Price</p>
-                        <p className="font-bold text-primary">{formatPrice(order.totalAmount)}</p>
+                        <p className="font-bold text-primary">{formatBDT(order.totalAmount)}</p>
                       </div>
                     </div>
 
@@ -258,6 +258,11 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                             </div>
                             <div className="min-w-0 pr-2">
                               <h4 className="font-bold text-[10px] truncate max-w-[120px]">{item.title}</h4>
+                              {item.selectedVariants && Object.entries(item.selectedVariants).length > 0 && (
+                                <p className="text-[8px] text-gray-400 truncate max-w-[120px]">
+                                  {Object.entries(item.selectedVariants).map(([k, v]) => `${k}: ${v}`).join(', ')}
+                                </p>
+                              )}
                               <p className="text-[10px] text-gray-500">Qty: {item.quantity}</p>
                             </div>
                           </div>
@@ -279,7 +284,7 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                   <div className="flex justify-between items-start mb-8">
                     <div className="space-y-1">
                       <p className="text-orange-100 text-sm font-medium">Current Balance (Normal)</p>
-                      <h2 className="text-4xl font-bold">{formatPrice(userProfile.walletBalance)}</h2>
+                      <h2 className="text-4xl font-bold">{formatBDT(userProfile.walletBalance)}</h2>
                     </div>
                     <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-2xl flex items-center justify-center">
                       <Wallet size={24} />
@@ -299,7 +304,7 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                   <div className="flex justify-between items-start mb-8">
                     <div className="space-y-1">
                       <p className="text-gray-400 text-sm font-medium">Hold Balance (Hold)</p>
-                      <h2 className="text-4xl font-bold text-gray-900">{formatPrice(userProfile.holdBalance)}</h2>
+                      <h2 className="text-4xl font-bold text-gray-900">{formatBDT(userProfile.holdBalance)}</h2>
                     </div>
                     <div className="w-12 h-12 bg-orange-50 text-primary rounded-2xl flex items-center justify-center">
                       <RefreshCcw size={24} />
@@ -344,7 +349,7 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                           <p className={`font-bold ${
                             request.status === 'Completed' ? 'text-green-600' : 'text-gray-900'
                           }`}>
-                            -{formatPrice(request.amount)}
+                            -{formatBDT(request.amount)}
                           </p>
                           <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{request.status}</p>
                         </div>
@@ -391,7 +396,7 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">৳</span>
                   </div>
-                  <p className="mt-2 text-[10px] text-gray-400">Max withdrawable: {formatPrice(userProfile.walletBalance)}</p>
+                  <p className="mt-2 text-[10px] text-gray-400">Max withdrawable: {formatBDT(userProfile.walletBalance)}</p>
                 </div>
               </div>
 

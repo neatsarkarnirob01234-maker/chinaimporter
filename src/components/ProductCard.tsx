@@ -3,13 +3,16 @@ import { motion } from "motion/react";
 import { ShoppingCart, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Product } from "../types";
-import { formatPrice } from "../lib/utils";
+import { formatPrice, formatBDT } from "../lib/utils";
 
 interface ProductCardProps {
   product: Product;
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+  const displayPrice = product.price_bdt ? formatBDT(product.price_bdt) : formatPrice(product.price_rmb);
+  const originalPrice = product.price_bdt ? formatBDT(product.price_bdt * 1.2) : formatPrice(product.price_rmb * 1.2);
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
@@ -19,12 +22,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     >
       <Link to={`/product/${product.id}`} className="block relative aspect-square overflow-hidden bg-gray-50">
         <img 
-          src={product.image} 
+          src={product.image || (product.images && product.images[0]) || "https://picsum.photos/seed/no-image/400/400"} 
           alt={product.title}
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
           referrerPolicy="no-referrer"
           onError={(e) => {
-            (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/400/400";
+            const target = e.target as HTMLImageElement;
+            if (!target.src.includes('picsum.photos/seed/error')) {
+              target.src = "https://picsum.photos/seed/error/400/400";
+            }
           }}
         />
         <div className="absolute top-2 left-2 bg-primary text-white text-[10px] font-bold px-2 py-1 rounded-lg shadow-lg">
@@ -42,10 +48,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         <div className="flex items-end justify-between">
           <div>
             <p className="text-xs text-gray-400 line-through">
-              {formatPrice(product.price_rmb * 1.2)}
+              {originalPrice}
             </p>
             <p className="text-lg font-bold text-primary">
-              {formatPrice(product.price_rmb)}
+              {displayPrice}
             </p>
           </div>
           

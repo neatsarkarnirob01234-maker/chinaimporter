@@ -2,11 +2,14 @@ export interface Product {
   id: string;
   title: string;
   price_rmb: number;
+  price_bdt?: number;
   image: string;
+  images?: string[];
   source_url: string;
   category?: string;
   description?: string;
   video?: string;
+  specs?: { label: string; value: string }[];
   variants?: {
     name: string;
     options: string[];
@@ -16,7 +19,7 @@ export interface Product {
 
 export interface CartItem extends Product {
   quantity: number;
-  selectedVariant?: string;
+  selectedVariants?: Record<string, string>;
 }
 
 export interface UserProfile {
@@ -61,5 +64,7 @@ export interface RefundRequest {
   status: 'Pending' | 'Completed' | 'Cancelled';
   gatewayCharge?: number;
   payoutTransactionId?: string;
+  paymentMethod?: string;
+  paymentNumber?: string;
   createdAt: any;
 }

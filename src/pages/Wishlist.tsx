@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { Heart, ShoppingCart, Trash2 } from "lucide-react";
 import { Product } from "../types";
-import { formatPrice } from "../lib/utils";
+import { formatPrice, formatBDT } from "../lib/utils";
 
 export default function Wishlist() {
   const [items, setItems] = useState<Product[]>([
@@ -56,7 +56,9 @@ export default function Wishlist() {
             </div>
             <div className="p-4 space-y-3">
               <h3 className="text-sm font-medium text-gray-800 line-clamp-2 min-h-[2.5rem]">{product.title}</h3>
-              <p className="text-lg font-bold text-primary">{formatPrice(product.price_rmb)}</p>
+              <p className="text-lg font-bold text-primary">
+                {product.price_bdt ? formatBDT(product.price_bdt) : formatPrice(product.price_rmb)}
+              </p>
               <button className="w-full bg-secondary text-white py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
                 <ShoppingCart size={16} />
                 কার্টে যোগ করুন

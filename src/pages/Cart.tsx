@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { Trash2, ShoppingBag, ArrowRight, ChevronLeft } from "lucide-react";
-import { formatPrice } from "../lib/utils";
+import { formatPrice, formatBDT } from "../lib/utils";
 import { CartItem } from "../types";
 
 interface CartProps {
@@ -11,7 +11,10 @@ interface CartProps {
 }
 
 export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps) {
-  const subtotal = cart.reduce((acc, item) => acc + (item.price_rmb * item.quantity), 0);
+  const subtotal = cart.reduce((acc, item) => {
+    const price = item.price_bdt || Math.round(item.price_rmb * 18.0);
+    return acc + (price * item.quantity);
+  }, 0);
   const shipping = 500; // Mock shipping cost
 
   if (cart.length === 0) {
@@ -58,7 +61,18 @@ export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps
               
               <div className="flex-1 min-w-0">
                 <h3 className="font-bold text-gray-900 truncate">{item.title}</h3>
-                <p className="text-primary font-bold mt-1">{formatPrice(item.price_rmb)}</p>
+                {item.selectedVariants && Object.entries(item.selectedVariants).length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {Object.entries(item.selectedVariants).map(([key, value]) => (
+                      <span key={key} className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md font-medium">
+                        {key}: {value}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-primary font-bold mt-1">
+                  {item.price_bdt ? formatBDT(item.price_bdt) : formatPrice(item.price_rmb)}
+                </p>
                 
                 <div className="flex items-center justify-between mt-4">
                   <div className="flex items-center bg-gray-100 rounded-xl p-1 scale-90 origin-left">
@@ -97,15 +111,15 @@ export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps
             <div className="space-y-3">
               <div className="flex justify-between text-gray-500">
                 <span>Subtotal</span>
-                <span>{formatPrice(subtotal)}</span>
+                <span>{formatBDT(subtotal)}</span>
               </div>
               <div className="flex justify-between text-gray-500">
                 <span>Shipping Charge (Est.)</span>
-                <span>{formatPrice(shipping)}</span>
+                <span>{formatBDT(shipping)}</span>
               </div>
               <div className="flex justify-between font-bold text-lg pt-4 border-t">
                 <span>Total</span>
-                <span className="text-primary">{formatPrice(subtotal + shipping)}</span>
+                <span className="text-primary">{formatBDT(subtotal + shipping)}</span>
               </div>
             </div>
 

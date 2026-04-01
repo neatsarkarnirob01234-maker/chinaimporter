@@ -1,19 +1,26 @@
 import { useState, useEffect } from "react";
 import BannerSlider from "../components/BannerSlider";
 import ProductCard from "../components/ProductCard";
-import { Product } from "../types";
-import { Zap, TrendingUp, Star } from "lucide-react";
+import { Product, UserProfile } from "../types";
+import { Zap, TrendingUp, Star, Plus, Settings, LayoutDashboard, LayoutGrid } from "lucide-react";
 import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
+import { Link } from "react-router-dom";
+import { toast } from "sonner";
 
-export default function Home() {
+interface HomeProps {
+  userProfile: UserProfile | null;
+}
+
+export default function Home({ userProfile }: HomeProps) {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, "products"), orderBy("createdAt", "desc"), limit(20));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    // Fetch Products
+    const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"), limit(20));
+    const unsubscribeProducts = onSnapshot(qProducts, (querySnapshot) => {
       const fetchedProducts = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -34,39 +41,130 @@ export default function Home() {
           { id: "8", title: "LED RGB Gaming Mouse Pad - Extra Large", price_rmb: 25, image: "https://picsum.photos/seed/p8/400/400", source_url: "https://1688.com/8" },
         ];
         setProducts(mockProducts);
+        toast.info("Showing example products. Add your own in the Admin Panel!");
       }
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching products:", error);
+      handleFirestoreError(error, OperationType.GET, 'products');
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    // Fetch Categories
+    const qCategories = query(collection(db, "categories"), limit(10));
+    const unsubscribeCategories = onSnapshot(qCategories, (querySnapshot) => {
+      const fetchedCategories = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      if (fetchedCategories.length > 0) {
+        setCategories(fetchedCategories);
+      } else {
+        setCategories([
+          { name: 'Electronics' },
+          { name: 'Clothing' },
+          { name: 'Home' },
+          { name: 'Beauty' },
+          { name: 'Sports' },
+          { name: 'Toys' },
+          { name: 'Automotive' },
+          { name: 'Books' }
+        ]);
+      }
+    });
+
+    return () => {
+      unsubscribeProducts();
+      unsubscribeCategories();
+    };
   }, []);
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-12 relative">
+      {/* Admin Quick Access */}
+      {userProfile?.role === 'admin' && (
+        <div className="fixed bottom-24 right-8 z-40 flex flex-col gap-3">
+          <Link 
+            to="/admin?tab=sourcing" 
+            className="bg-primary text-white p-4 rounded-full shadow-2xl hover:bg-orange-600 transition-all flex items-center gap-2 group"
+          >
+            <Plus size={24} />
+            <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 font-bold whitespace-nowrap">Add Product</span>
+          </Link>
+          <Link 
+            to="/admin" 
+            className="bg-secondary text-white p-4 rounded-full shadow-2xl hover:bg-slate-800 transition-all flex items-center gap-2 group"
+          >
+            <LayoutDashboard size={24} />
+            <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 font-bold whitespace-nowrap">Admin Dashboard</span>
+          </Link>
+        </div>
+      )}
+
       <BannerSlider />
+
+      {/* Categories */}
+      <section>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">Categories</h2>
+          <Link to="/categories" className="text-xs font-bold text-primary hover:underline uppercase tracking-widest">See All</Link>
+        </div>
+        <div className="grid grid-cols-4 md:grid-cols-8 gap-4">
+          {categories.slice(0, 8).map((cat, i) => (
+            <Link 
+              key={i} 
+              to={`/category/${cat.name}`}
+              className="flex flex-col items-center gap-3 group"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-white border border-gray-100 flex items-center justify-center shadow-sm group-hover:shadow-md group-hover:border-primary transition-all duration-300">
+                <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                  <LayoutGrid size={20} />
+                </div>
+              </div>
+              <span className="text-[10px] font-bold text-gray-500 text-center uppercase tracking-tight group-hover:text-primary transition-colors">{cat.name}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       {/* Flash Deals */}
       <section>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <div className="bg-red-100 p-2 rounded-xl text-red-600">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-red-500 p-2.5 rounded-2xl text-white shadow-lg shadow-red-100">
               <Zap size={24} fill="currentColor" />
             </div>
-            <h2 className="text-2xl font-bold">Flash Deals</h2>
+            <div>
+              <h2 className="text-2xl font-black tracking-tight text-gray-900 uppercase">Flash Deals</h2>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Limited time offers</p>
+            </div>
           </div>
-          <button className="text-primary font-bold hover:underline">See All</button>
+          <div className="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-2xl border border-gray-100">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Ends in:</span>
+            <div className="flex items-center gap-1.5">
+              {[
+                { label: 'H', value: '08' },
+                { label: 'M', value: '45' },
+                { label: 'S', value: '12' }
+              ].map((unit, i) => (
+                <div key={i} className="flex items-center gap-1">
+                  <div className="bg-black text-white w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm">
+                    {unit.value}
+                  </div>
+                  {i < 2 && <span className="text-black font-black">:</span>}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
         
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
           {loading ? (
-            Array(4).fill(0).map((_, i) => (
+            Array(8).fill(0).map((_, i) => (
               <div key={i} className="bg-gray-100 animate-pulse rounded-2xl aspect-[3/4]" />
             ))
           ) : (
-            products.slice(0, 4).map(product => (
+            products.slice(0, 8).map(product => (
               <ProductCard key={product.id} product={product} />
             ))
           )}
@@ -75,13 +173,17 @@ export default function Home() {
 
       {/* Trending Products */}
       <section>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-500 p-2.5 rounded-2xl text-white shadow-lg shadow-blue-100">
               <TrendingUp size={24} />
             </div>
-            <h2 className="text-2xl font-bold">Trending Products</h2>
+            <div>
+              <h2 className="text-2xl font-black tracking-tight text-gray-900 uppercase">Trending Now</h2>
+              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Most popular items</p>
+            </div>
           </div>
+          <Link to="/products" className="text-xs font-bold text-primary hover:underline uppercase tracking-widest">View All Products</Link>
         </div>
         
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">

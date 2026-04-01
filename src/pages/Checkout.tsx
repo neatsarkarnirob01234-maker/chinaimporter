@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { CreditCard, Truck, ShieldCheck, Upload, CheckCircle2, AlertCircle, ShoppingBag } from "lucide-react";
-import { formatPrice } from "../lib/utils";
+import { formatPrice, formatBDT } from "../lib/utils";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
@@ -25,10 +25,12 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
   const [paymentProof, setPaymentProof] = useState<string | null>(null);
   const [address, setAddress] = useState({ name: "", phone: "", email: "", detail: "" });
 
-  const subtotalRMB = cart.reduce((acc, item) => acc + (item.price_rmb * item.quantity), 0);
-  const exchangeRate = 18.0;
+  const subtotalBDT = cart.reduce((acc, item) => {
+    const price = item.price_bdt || Math.round(item.price_rmb * 18.0);
+    return acc + (price * item.quantity);
+  }, 0);
   const shippingBDT = 500;
-  const totalBDT = (subtotalRMB * exchangeRate) + shippingBDT;
+  const totalBDT = subtotalBDT + shippingBDT;
   const partialAmount = totalBDT * 0.7;
 
   const handleCheckout = () => {
@@ -336,15 +338,15 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
             <div className="space-y-3">
               <div className="flex justify-between text-gray-500 text-sm">
                 <span>Product Price</span>
-                <span>{formatPrice(subtotalRMB * exchangeRate, 1)}</span>
+                <span>{formatBDT(subtotalBDT)}</span>
               </div>
               <div className="flex justify-between text-gray-500 text-sm">
                 <span>Shipping Charge</span>
-                <span>{formatPrice(shippingBDT, 1)}</span>
+                <span>{formatBDT(shippingBDT)}</span>
               </div>
               <div className="flex justify-between font-bold text-lg pt-4 border-t">
                 <span>Total</span>
-                <span className="text-primary">{formatPrice(totalBDT, 1)}</span>
+                <span className="text-primary">{formatBDT(totalBDT)}</span>
               </div>
             </div>
 
@@ -352,11 +354,11 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
               <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-orange-800 font-bold">Pay Now (70%)</span>
-                  <span className="text-orange-800 font-bold">{formatPrice(partialAmount, 1)}</span>
+                  <span className="text-orange-800 font-bold">{formatBDT(partialAmount)}</span>
                 </div>
                 <div className="flex justify-between text-[10px] text-orange-600">
                   <span>Remaining (30%)</span>
-                  <span>{formatPrice(totalBDT - partialAmount, 1)}</span>
+                  <span>{formatBDT(totalBDT - partialAmount)}</span>
                 </div>
               </div>
             )}

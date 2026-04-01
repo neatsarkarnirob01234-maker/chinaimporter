@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { useState } from "react";
-import { formatPrice } from "../lib/utils";
+import { formatPrice, formatBDT } from "../lib/utils";
 
 import { UserProfile } from "../types";
 
@@ -65,6 +65,13 @@ export default function Header({ userProfile, cartCount }: HeaderProps) {
 
         {/* Actions */}
         <div className="flex items-center gap-2 sm:gap-4">
+          {userProfile && (
+            <div className="hidden md:flex flex-col items-end mr-2">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Wallet</span>
+              <span className="text-sm font-black text-primary">{formatBDT(userProfile.walletBalance)}</span>
+            </div>
+          )}
+
           <Link to="/wishlist">
             <motion.button 
               whileHover={{ scale: 1.05 }}
@@ -113,7 +120,7 @@ export default function Header({ userProfile, cartCount }: HeaderProps) {
               <div className="text-[10px] leading-tight max-w-[120px]">
                 <p className="font-bold text-gray-900 truncate">{userProfile.displayName || 'User'}</p>
                 <p className="text-gray-500 truncate">{userProfile.email}</p>
-                <p className="text-primary font-bold">{formatPrice(userProfile.walletBalance)}</p>
+                <p className="text-primary font-bold">{formatBDT(userProfile.walletBalance)}</p>
               </div>
             </div>
           )}
