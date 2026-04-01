@@ -4,7 +4,7 @@ import { CreditCard, Truck, ShieldCheck, Upload, CheckCircle2, AlertCircle, Shop
 import { formatPrice, formatBDT } from "../lib/utils";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import { UserProfile, CartItem } from "../types";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +24,20 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
   const [transactionId, setTransactionId] = useState("");
   const [paymentProof, setPaymentProof] = useState<string | null>(null);
   const [address, setAddress] = useState({ name: "", phone: "", email: "", detail: "" });
+  const [paymentSettings, setPaymentSettings] = useState({
+    bkash: '01789-456123',
+    nagad: '01789-456123',
+    bank: 'Account Name: ...\nAccount Number: ...'
+  });
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'payment'), (doc) => {
+      if (doc.exists()) {
+        setPaymentSettings(doc.data() as any);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const subtotalBDT = cart.reduce((acc, item) => {
     const price = item.price_bdt || Math.round(item.price_rmb * 18.0);
@@ -254,8 +268,14 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
                   ))}
                 </div>
                 <div className="bg-white p-4 rounded-xl border border-blue-100">
-                  <p className="text-xs text-gray-500 mb-1">{paymentMethod} Number (Personal):</p>
-                  <p className="text-lg font-bold text-secondary">01789-456123</p>
+                  <p className="text-xs text-gray-500 mb-1">
+                    {paymentMethod === 'Bank' ? 'Bank Details:' : `${paymentMethod} Number (Personal):`}
+                  </p>
+                  <p className="text-lg font-bold text-secondary whitespace-pre-line">
+                    {(paymentMethod === 'bKash' ? paymentSettings.bkash : 
+                      paymentMethod === 'Nagad' ? paymentSettings.nagad : 
+                      paymentSettings.bank) || 'Not set by admin'}
+                  </p>
                 </div>
               </div>
 

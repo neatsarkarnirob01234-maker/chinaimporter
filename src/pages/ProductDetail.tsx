@@ -119,16 +119,23 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
               className="w-full h-full object-contain"
               referrerPolicy="no-referrer"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/400/400";
+                const target = e.target as HTMLImageElement;
+                // If the active image fails, try the first available image from the gallery that isn't the current one
+                const fallback = allImages.find(img => img !== activeImage && img);
+                if (fallback && !target.src.includes('picsum.photos/seed/error')) {
+                  setActiveImage(fallback);
+                } else {
+                  target.src = "https://picsum.photos/seed/error/400/400";
+                }
               }}
             />
           </motion.div>
-          <div className="grid grid-cols-4 gap-4">
-            {allImages.slice(0, 4).map((img, i) => (
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide snap-x">
+            {allImages.map((img, i) => (
               <div 
                 key={i} 
                 onClick={() => setActiveImage(img)}
-                className={`aspect-square rounded-xl overflow-hidden bg-gray-50 border cursor-pointer transition-all ${activeImage === img ? 'border-primary' : 'border-gray-100 hover:border-primary'}`}
+                className={`flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-gray-50 border cursor-pointer transition-all snap-start ${activeImage === img ? 'border-primary ring-2 ring-primary/20' : 'border-gray-100 hover:border-primary'}`}
               >
                 <img src={img} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               </div>

@@ -37,6 +37,7 @@ import {
   where, 
   onSnapshot, 
   doc, 
+  setDoc,
   updateDoc, 
   addDoc, 
   getDoc,
@@ -44,7 +45,8 @@ import {
   deleteDoc,
   serverTimestamp,
   increment,
-  orderBy
+  orderBy,
+  writeBatch
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Order, OrderStatus, RefundRequest, UserProfile, Product } from '../types';
@@ -72,11 +74,41 @@ type AdminTab =
   | 'old-balance'
   | 'users' 
   | 'banners'
-  | 'categories';
+  | 'categories'
+  | 'payment-settings';
 
 interface AdminDashboardProps {
   userProfile: UserProfile | null;
 }
+
+const COMMON_CATEGORIES = [
+  { name: "Electronics & Gadgets", sub: ["Smartphones", "Laptops", "Accessories", "Audio", "Cameras", "Smart Watches", "Power Banks", "Tablets", "Drones"] },
+  { name: "Computer & Office", sub: ["Computer Components", "Monitors", "Printers", "Networking", "Storage", "Office Electronics", "3D Printers"] },
+  { name: "Security & Smart Home", sub: ["Security Cameras", "Smart Locks", "Smart Lighting", "Sensors", "Intercoms"] },
+  { name: "Men's Fashion", sub: ["T-Shirts", "Shirts", "Pants", "Suits", "Activewear", "Underwear", "Jackets", "Traditional Wear"] },
+  { name: "Women's Fashion", sub: ["Dresses", "Tops", "Skirts", "Sarees", "Salwar Kameez", "Lingerie", "Abayas", "Kurtis"] },
+  { name: "Men's Shoes", sub: ["Sneakers", "Formal Shoes", "Boots", "Sandals", "Loafers", "Slippers"] },
+  { name: "Women's Shoes", sub: ["Heels", "Flats", "Sneakers", "Boots", "Sandals", "Wedges"] },
+  { name: "Bags & Luggage", sub: ["Backpacks", "Handbags", "Suitcases", "Wallets", "Travel Bags", "Messenger Bags", "Crossbody Bags"] },
+  { name: "Watches & Accessories", sub: ["Men's Watches", "Women's Watches", "Sunglasses", "Belts", "Hats", "Scarves", "Gloves"] },
+  { name: "Jewelry", sub: ["Necklaces", "Earrings", "Rings", "Bracelets", "Jewelry Sets", "Anklets", "Brooches"] },
+  { name: "Home & Living", sub: ["Furniture", "Decor", "Bedding", "Kitchenware", "Lighting", "Storage & Organization", "Bath"] },
+  { name: "Home Appliances", sub: ["Refrigerators", "Washing Machines", "Air Conditioners", "Microwaves", "TVs", "Vacuum Cleaners", "Air Purifiers"] },
+  { name: "Kitchen Appliances", sub: ["Blenders", "Coffee Makers", "Air Fryers", "Rice Cookers", "Toasters", "Electric Kettles"] },
+  { name: "Beauty & Personal Care", sub: ["Skincare", "Makeup", "Haircare", "Fragrance", "Grooming Tools", "Oral Care", "Bath & Body"] },
+  { name: "Health & Wellness", sub: ["Supplements", "Medical Supplies", "Fitness Equipment", "Personal Care", "Massage & Relaxation"] },
+  { name: "Baby & Kids", sub: ["Baby Clothing", "Toys", "Diapering", "Kids Fashion", "Baby Gear", "Maternity", "Feeding"] },
+  { name: "Toys & Hobbies", sub: ["Action Figures", "Dolls", "Puzzles", "Remote Control", "Collectibles", "Board Games", "Building Blocks"] },
+  { name: "Sports & Outdoors", sub: ["Exercise & Fitness", "Camping", "Cycling", "Team Sports", "Water Sports", "Fishing", "Hiking"] },
+  { name: "Automotive", sub: ["Car Parts", "Car Electronics", "Car Accessories", "Motorcycle Parts", "Tools", "Maintenance"] },
+  { name: "Tools & Hardware", sub: ["Hand Tools", "Power Tools", "Safety Gear", "Electrical", "Plumbing", "Measuring Tools"] },
+  { name: "Industrial & Scientific", sub: ["Machinery", "Lab Supplies", "Packaging", "Office Supplies", "Solar Energy", "Test & Measurement"] },
+  { name: "Pet Supplies", sub: ["Dog Supplies", "Cat Supplies", "Fish & Aquatic", "Bird Supplies", "Small Animal Supplies"] },
+  { name: "Stationery & Craft", sub: ["Office Supplies", "School Supplies", "Art Supplies", "Crafting", "Gift Wrapping", "Party Supplies"] },
+  { name: "Groceries & Food", sub: ["Snacks", "Beverages", "Cooking Essentials", "Breakfast", "Chocolates", "Dry Fruits"] },
+  { name: "Musical Instruments", sub: ["Guitars", "Keyboards", "Drums", "Recording Gear", "Wind Instruments", "String Instruments"] },
+  { name: "Books & Media", sub: ["English Books", "Bengali Books", "Educational", "Magazines", "Comics"] }
+];
 
 export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -94,7 +126,42 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [refundPayoutData, setRefundPayoutData] = useState({ gatewayCharge: 0, transactionId: '' });
   const [userEditData, setUserEditData] = useState({ walletBalance: 0, holdBalance: 0, role: 'user' });
-  const [newCategory, setNewCategory] = useState({ name: '', subCategories: [] });
+  const [paymentSettings, setPaymentSettings] = useState({
+    bkash: '01789-456123',
+    nagad: '01789-456123',
+    bank: 'Account Name: ...\nAccount Number: ...\nBank Name: ...\nBranch: ...'
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'payment'), (doc) => {
+      if (doc.exists()) {
+        setPaymentSettings(doc.data() as any);
+      }
+    }, (error) => {
+      console.error("Error fetching payment settings:", error);
+      handleFirestoreError(error, OperationType.GET, 'settings/payment');
+    });
+    return () => unsub();
+  }, []);
+
+  const handleSavePaymentSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    console.log("Attempting to save payment settings:", paymentSettings);
+    setSavingSettings(true);
+    try {
+      await setDoc(doc(db, 'settings', 'payment'), paymentSettings);
+      console.log("Payment settings saved successfully");
+      toast.success('Payment settings updated successfully');
+    } catch (error: any) {
+      console.error("Error saving payment settings:", error);
+      toast.error('Failed to save settings: ' + (error.message || 'Unknown error'));
+      handleFirestoreError(error, OperationType.WRITE, 'settings/payment');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+  const [newCategory, setNewCategory] = useState({ name: '', sub: [] as string[] });
   const [newBanner, setNewBanner] = useState({ title: '', subtitle: '', image: '', link: '', color: 'bg-primary' });
 
   // Sourcing form state
@@ -130,9 +197,11 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         variants (array of {name: string, options: string[]}), category, specs (array of {label: string, value: string}).
         IMPORTANT: 
         1. The 'image' field MUST be the primary high-resolution product image.
-        2. The 'images' array should contain at least 4 high-quality gallery images.
-        3. If you cannot access the URL, provide realistic mock data based on the URL context.
-        4. Ensure all image URLs are direct links (e.g., ending in .jpg, .png).`,
+        2. The 'images' array should contain ALL available high-quality gallery images (at least 8-12 if possible).
+        3. Look for images in the main gallery, product description, and specification sections.
+        4. If you cannot access the URL, provide realistic mock data based on the URL context.
+        5. Ensure all image URLs are direct links (e.g., ending in .jpg, .png, .webp).
+        6. For 1688/Alibaba/Taobao, look for images in the 'obj' or 'gallery' data structures in the page source.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -178,6 +247,11 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       }
       if (data.images) {
         data.images = data.images.map((img: string) => img.startsWith('//') ? 'https:' + img : img);
+      }
+
+      // Ensure primary image is set if missing but gallery exists
+      if (!data.image && data.images && data.images.length > 0) {
+        data.image = data.images[0];
       }
 
       setSourcingForm(prev => ({
@@ -339,14 +413,32 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSourcingForm(prev => ({ ...prev, image: reader.result as string }));
-        toast.success('Image uploaded successfully');
-      };
-      reader.readAsDataURL(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const fileList = Array.from(files) as File[];
+      fileList.forEach((file) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          if (result.length > 800000) {
+            toast.error(`Image ${file.name} is too large. Please use a smaller image.`);
+            return;
+          }
+          setSourcingForm(prev => {
+            const newImages = [...(prev.images || [])];
+            if (!newImages.includes(result)) {
+              newImages.push(result);
+            }
+            return { 
+              ...prev, 
+              image: prev.image || result, // Set as primary if none exists
+              images: newImages 
+            };
+          });
+        };
+        reader.readAsDataURL(file);
+      });
+      toast.success('Images uploaded successfully');
     }
   };
 
@@ -398,13 +490,33 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     if (!newCategory.name) return;
     try {
       await addDoc(collection(db, 'categories'), {
-        ...newCategory,
+        name: newCategory.name,
+        sub: newCategory.sub,
         createdAt: serverTimestamp()
       });
-      setNewCategory({ name: '', subCategories: [] });
+      setNewCategory({ name: '', sub: [] });
       toast.success('Category added successfully');
     } catch (error) {
       toast.error('Failed to add category');
+    }
+  };
+
+  const seedCategories = async () => {
+    if (!window.confirm('This will add all common categories to your store. Continue?')) return;
+    try {
+      const batch = writeBatch(db);
+      COMMON_CATEGORIES.forEach(cat => {
+        const newDocRef = doc(collection(db, "categories"));
+        batch.set(newDocRef, {
+          name: cat.name,
+          sub: cat.sub,
+          createdAt: serverTimestamp()
+        });
+      });
+      await batch.commit();
+      toast.success('Categories seeded successfully!');
+    } catch (error) {
+      toast.error('Failed to seed categories');
     }
   };
 
@@ -501,6 +613,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     { id: 'products', label: 'Manage Products', icon: ShoppingBag },
     { id: 'banners', label: 'Banners', icon: ImageIcon },
     { id: 'categories', label: 'Categories', icon: List },
+    { id: 'payment-settings', label: 'Payment Settings', icon: CreditCard },
     { id: 'footer-settings', label: 'Footer Settings', icon: FileText },
     { id: 'page-content', label: 'Page Content', icon: FileText },
   ];
@@ -628,102 +741,168 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                     <p className="text-2xl font-bold text-gray-900">{products.length}</p>
                   </div>
                 </div>
-              ) :
- activeTab === 'banners' ? (
-                <div className="space-y-6">
-                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <h3 className="text-lg font-bold mb-4">Add New Banner</h3>
-                    <form onSubmit={async (e) => {
-                      e.preventDefault();
-                      const form = e.target as HTMLFormElement;
-                      const title = (form.elements.namedItem('title') as HTMLInputElement).value;
-                      const subtitle = (form.elements.namedItem('subtitle') as HTMLInputElement).value;
-                      const image = (form.elements.namedItem('image') as HTMLInputElement).value;
-                      const link = (form.elements.namedItem('link') as HTMLInputElement).value;
-                      
-                      try {
-                        await addDoc(collection(db, "banners"), {
-                          title, subtitle, image, link,
-                          createdAt: serverTimestamp()
-                        });
-                        toast.success("Banner added successfully");
-                        form.reset();
-                      } catch (error) {
-                        toast.error("Failed to add banner");
-                      }
-                    }} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <input name="title" placeholder="Banner Title" className="px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 ring-primary" required />
-                      <input name="subtitle" placeholder="Banner Subtitle" className="px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 ring-primary" required />
-                      <input name="image" placeholder="Image URL" className="px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 ring-primary col-span-2" required />
-                      <input name="link" placeholder="Redirect Link (Optional)" className="px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 ring-primary col-span-2" />
-                      <button type="submit" className="bg-primary text-white py-2 rounded-xl font-bold hover:bg-orange-600 transition-all col-span-2">Add Banner</button>
-                    </form>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              ) : activeTab === 'banners' ? (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                  <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                    <ImageIcon className="text-primary" /> Banner Management
+                  </h2>
+                  <form onSubmit={handleAddBanner} className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                    <input 
+                      type="text" 
+                      placeholder="Banner Title"
+                      className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
+                      required
+                      value={newBanner.title}
+                      onChange={e => setNewBanner({...newBanner, title: e.target.value})}
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Banner Subtitle"
+                      className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
+                      required
+                      value={newBanner.subtitle}
+                      onChange={e => setNewBanner({...newBanner, subtitle: e.target.value})}
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Image URL"
+                      className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
+                      required
+                      value={newBanner.image}
+                      onChange={e => setNewBanner({...newBanner, image: e.target.value})}
+                    />
+                    <select 
+                      className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none bg-white font-bold"
+                      value={newBanner.color}
+                      onChange={e => setNewBanner({...newBanner, color: e.target.value})}
+                    >
+                      <option value="bg-primary">Orange (Primary)</option>
+                      <option value="bg-secondary">Slate (Secondary)</option>
+                      <option value="bg-green-600">Green</option>
+                      <option value="bg-blue-600">Blue</option>
+                      <option value="bg-red-600">Red</option>
+                      <option value="bg-purple-600">Purple</option>
+                    </select>
+                    <input 
+                      type="text" 
+                      placeholder="Redirect Link (Optional)"
+                      className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none md:col-span-2"
+                      value={newBanner.link}
+                      onChange={e => setNewBanner({...newBanner, link: e.target.value})}
+                    />
+                    <button type="submit" className="md:col-span-2 bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition-all">
+                      Add Banner
+                    </button>
+                  </form>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {banners.map(banner => (
-                      <div key={banner.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm group">
-                        <div className="aspect-[3/1] relative">
-                          <img src={banner.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
-                              onClick={() => deleteDocument('banners', banner.id)}
-                              className="bg-red-600 text-white p-3 rounded-full hover:bg-red-700 transition-all"
-                            >
-                              <Trash2 size={24} />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="p-4">
-                          <h4 className="font-bold text-gray-900">{banner.title}</h4>
-                          <p className="text-sm text-gray-500">{banner.subtitle}</p>
+                      <div key={banner.id} className="relative rounded-2xl overflow-hidden group aspect-video shadow-sm border border-gray-100">
+                        <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all p-4 text-center">
+                          <h4 className="text-white font-bold mb-1">{banner.title}</h4>
+                          <p className="text-white/80 text-xs mb-4">{banner.subtitle}</p>
+                          <button onClick={() => deleteDocument('banners', banner.id)} className="bg-white text-red-500 p-3 rounded-full hover:bg-red-50 transition-all">
+                            <Trash2 size={20} />
+                          </button>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : activeTab === 'categories' ? (
-                <div className="space-y-6">
-                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                    <h3 className="text-lg font-bold mb-4">Add New Category</h3>
-                    <form onSubmit={async (e) => {
-                      e.preventDefault();
-                      const form = e.target as HTMLFormElement;
-                      const name = (form.elements.namedItem('name') as HTMLInputElement).value;
-                      const sub = (form.elements.namedItem('sub') as HTMLInputElement).value.split(',').map(s => s.trim()).filter(s => s);
-                      
-                      try {
-                        await addDoc(collection(db, "categories"), {
-                          name, sub,
-                          createdAt: serverTimestamp()
-                        });
-                        toast.success("Category added successfully");
-                        form.reset();
-                      } catch (error) {
-                        toast.error("Failed to add category");
-                      }
-                    }} className="space-y-4">
-                      <input name="name" placeholder="Category Name (e.g. Electronics)" className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 ring-primary" required />
-                      <input name="sub" placeholder="Sub-categories (comma separated: Mobile, Laptop, Accessories)" className="w-full px-4 py-2 rounded-xl border border-gray-200 outline-none focus:ring-2 ring-primary" />
-                      <button type="submit" className="w-full bg-primary text-white py-2 rounded-xl font-bold hover:bg-orange-600 transition-all">Add Category</button>
-                    </form>
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <List className="text-primary" /> Category Management
+                    </h2>
+                    <button 
+                      onClick={seedCategories}
+                      className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2"
+                    >
+                      <RefreshCcw size={14} /> Seed All Categories
+                    </button>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <form onSubmit={handleAddCategory} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <input 
+                      type="text" 
+                      placeholder="Category Name"
+                      className="md:col-span-1 px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
+                      required
+                      value={newCategory.name}
+                      onChange={e => setNewCategory({...newCategory, name: e.target.value})}
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Sub-categories (comma separated)"
+                      className="md:col-span-1 px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
+                      value={newCategory.sub.join(', ')}
+                      onChange={e => setNewCategory({...newCategory, sub: e.target.value.split(',').map(s => s.trim()).filter(s => s)})}
+                    />
+                    <button type="submit" className="bg-black text-white px-8 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all">
+                      Add Category
+                    </button>
+                  </form>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     {categories.map(cat => (
-                      <div key={cat.id} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between">
+                      <div key={cat.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between group hover:bg-white hover:shadow-md transition-all">
                         <div>
-                          <h4 className="font-bold text-gray-900">{cat.name}</h4>
-                          <p className="text-xs text-gray-500">{cat.sub?.join(', ') || 'No sub-categories'}</p>
+                          <span className="font-bold text-gray-900 block">{cat.name}</span>
+                          <span className="text-[10px] text-gray-400 uppercase font-bold">{cat.sub?.length || 0} Sub-categories</span>
                         </div>
-                        <button 
-                          onClick={() => deleteDocument('categories', cat.id)}
-                          className="text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 size={18} />
+                        <button onClick={() => deleteDocument('categories', cat.id)} className="text-gray-400 hover:text-red-500 transition-all">
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     ))}
+                  </div>
+                </div>
+              ) : activeTab === 'payment-settings' ? (
+                <div className="max-w-2xl mx-auto space-y-8">
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 space-y-6">
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <CreditCard className="text-primary" /> Payment Settings
+                    </h2>
+                    <form onSubmit={handleSavePaymentSettings} className="space-y-6">
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-600">bKash Number (Personal)</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-gray-50 h-12 px-4 rounded-xl outline-none focus:ring-2 ring-primary" 
+                            value={paymentSettings.bkash}
+                            onChange={e => setPaymentSettings({...paymentSettings, bkash: e.target.value})}
+                            placeholder="e.g. 017XXXXXXXX"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-600">Nagad Number (Personal)</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-gray-50 h-12 px-4 rounded-xl outline-none focus:ring-2 ring-primary" 
+                            value={paymentSettings.nagad}
+                            onChange={e => setPaymentSettings({...paymentSettings, nagad: e.target.value})}
+                            placeholder="e.g. 017XXXXXXXX"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-bold text-gray-600">Bank Details</label>
+                          <textarea 
+                            className="w-full bg-gray-50 p-4 rounded-xl outline-none focus:ring-2 ring-primary min-h-[150px]" 
+                            value={paymentSettings.bank}
+                            onChange={e => setPaymentSettings({...paymentSettings, bank: e.target.value})}
+                            placeholder="Account Name: ...&#10;Account Number: ...&#10;Bank Name: ...&#10;Branch: ..."
+                          />
+                        </div>
+                      </div>
+
+                      <button 
+                        type="submit"
+                        disabled={savingSettings}
+                        className="w-full bg-primary text-white h-14 rounded-2xl font-bold shadow-xl shadow-orange-200 flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {savingSettings ? "Saving..." : "Save Payment Settings"}
+                      </button>
+                    </form>
                   </div>
                 </div>
               ) : activeTab === 'users' || activeTab === 'old-balance' ? (
@@ -780,63 +959,59 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                   </div>
                 </div>
               ) : activeTab === 'products' ? (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-gray-50 border-b border-gray-100">
-                    <tr>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Product</th>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Price (RMB)</th>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Category</th>
-                      <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <ShoppingBag className="text-primary" /> Product Management
+                    </h2>
+                    <button 
+                      onClick={() => setActiveTab('sourcing')}
+                      className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-orange-600 transition-all flex items-center gap-2"
+                    >
+                      <Plus size={18} /> Add New
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {products.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-12 text-center text-gray-400">No products found</td>
-                      </tr>
+                      <div className="col-span-full py-12 text-center text-gray-500">
+                        No products found in the database.
+                      </div>
                     ) : (
                       products.map(product => (
-                        <tr key={product.id} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <img src={product.image} alt="" className="w-10 h-10 rounded-lg object-cover border border-gray-100" referrerPolicy="no-referrer" />
-                              <div className="min-w-0">
-                                <p className="font-bold text-gray-900 truncate max-w-[200px]">{product.title}</p>
-                                <a href={product.source_url} target="_blank" rel="noreferrer" className="text-[10px] text-primary hover:underline flex items-center gap-1">
-                                  <ExternalLink size={10} /> View Source
-                                </a>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 font-bold text-gray-900">¥{product.price_rmb}</td>
-                          <td className="px-6 py-4 text-sm text-gray-500">{product.category}</td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => window.open(`/product/${product.id}`, '_blank')}
-                                className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
-                                title="View on Site"
-                              >
-                                <ExternalLink size={18} />
-                              </button>
+                        <div key={product.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50 flex gap-4 group hover:bg-white hover:shadow-md transition-all">
+                          <div className="w-20 h-20 rounded-xl overflow-hidden bg-white shrink-0 border border-gray-100">
+                            <img src={product.image} alt={product.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-sm text-gray-900 line-clamp-1">{product.title}</h3>
+                            <p className="text-primary font-bold text-sm mt-1">
+                              {product.price_bdt ? formatBDT(product.price_bdt) : formatBDT(product.price_rmb * 18)}
+                            </p>
+                            <div className="flex gap-2 mt-2">
                               <button 
                                 onClick={() => deleteDocument('products', product.id)}
-                                className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                                className="text-red-500 p-2 hover:bg-red-50 rounded-lg transition-all"
                                 title="Delete Product"
                               >
-                                <Trash2 size={18} />
+                                <Trash2 size={16} />
                               </button>
+                              <a 
+                                href={product.source_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-gray-400 p-2 hover:bg-gray-100 rounded-lg transition-all"
+                                title="View Source"
+                              >
+                                <ExternalLink size={16} />
+                              </a>
                             </div>
-                          </td>
-                        </tr>
+                          </div>
+                        </div>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                  </div>
+                </div>
           ) : activeTab === 'sourcing' ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2">
@@ -919,59 +1094,97 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                         value={sourcingForm.category}
                         onChange={e => setSourcingForm({...sourcingForm, category: e.target.value})}
                       >
-                        <option value="Electronics">Electronics</option>
-                        {categories.map(cat => (
+                        <option value="General">General</option>
+                        {categories.sort((a, b) => a.name.localeCompare(b.name)).map(cat => (
                           <option key={cat.id} value={cat.name}>{cat.name}</option>
                         ))}
                       </select>
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Product Image</label>
-                      <div className="flex gap-4">
-                        <div className="flex-1 space-y-2">
-                          <div className="flex gap-2">
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Product Images (Gallery)</label>
+                      <div className="space-y-4">
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            placeholder="Add Image URL to Gallery"
+                            className="flex-1 px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none transition-all"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const url = (e.target as HTMLInputElement).value;
+                                if (url) {
+                                  setSourcingForm(prev => ({
+                                    ...prev,
+                                    image: prev.image || url,
+                                    images: [...(prev.images || []), url]
+                                  }));
+                                  (e.target as HTMLInputElement).value = '';
+                                }
+                              }
+                            }}
+                          />
+                          <div className="relative">
                             <input 
-                              type="text" 
-                              placeholder="Paste Image URL or use Review button below"
-                              className="flex-1 px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none transition-all"
-                              value={sourcingForm.image}
-                              onChange={e => setSourcingForm({...sourcingForm, image: e.target.value})}
+                              type="file" 
+                              className="hidden" 
+                              id="product-files" 
+                              multiple
+                              accept="image/*"
+                              onChange={handleFileUpload}
                             />
-                            <div className="relative">
-                              <input 
-                                type="file" 
-                                className="hidden" 
-                                id="product-file" 
-                                accept="image/*"
-                                onChange={handleFileUpload}
-                              />
-                              <label htmlFor="product-file" className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-sm cursor-pointer hover:bg-gray-100 transition-all block whitespace-nowrap">
-                                {sourcingForm.image?.startsWith('data:') ? 'Image selected' : 'Choose file'}
-                              </label>
-                            </div>
+                            <label htmlFor="product-files" className="px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 text-sm cursor-pointer hover:bg-gray-100 transition-all block whitespace-nowrap">
+                              Upload More
+                            </label>
                           </div>
                         </div>
-                        {sourcingForm.image && (
-                          <div className="relative group">
-                            <div className="w-24 h-24 rounded-xl border border-gray-100 overflow-hidden bg-gray-50 flex-shrink-0">
-                              <img 
-                                src={sourcingForm.image} 
-                                alt="Preview" 
-                                className="w-full h-full object-cover"
-                                referrerPolicy="no-referrer"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/100/100";
-                                }}
-                              />
-                            </div>
-                            <button 
-                              type="button"
-                              onClick={() => setSourcingForm({...sourcingForm, image: ''})}
-                              className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X size={12} />
-                            </button>
+
+                        {sourcingForm.images && sourcingForm.images.length > 0 && (
+                          <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
+                            {sourcingForm.images.map((img, idx) => (
+                              <div key={idx} className={`relative group aspect-square rounded-xl border-2 overflow-hidden bg-gray-50 ${sourcingForm.image === img ? 'border-primary' : 'border-transparent hover:border-gray-200'}`}>
+                                <img 
+                                  src={img} 
+                                  alt={`Gallery ${idx}`} 
+                                  className="w-full h-full object-cover cursor-pointer"
+                                  onClick={() => setSourcingForm({...sourcingForm, image: img})}
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/100/100";
+                                  }}
+                                />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                                  <button 
+                                    type="button"
+                                    onClick={() => setSourcingForm({...sourcingForm, image: img})}
+                                    className="p-1 bg-white text-primary rounded-lg shadow-lg"
+                                    title="Set as Primary"
+                                  >
+                                    <CheckCircle size={14} />
+                                  </button>
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      const newImages = sourcingForm.images?.filter((_, i) => i !== idx);
+                                      setSourcingForm({
+                                        ...sourcingForm,
+                                        images: newImages,
+                                        image: sourcingForm.image === img ? (newImages?.[0] || '') : sourcingForm.image
+                                      });
+                                    }}
+                                    className="p-1 bg-white text-red-500 rounded-lg shadow-lg"
+                                    title="Remove"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                                {sourcingForm.image === img && (
+                                  <div className="absolute top-1 left-1 bg-primary text-white text-[8px] font-bold px-1 rounded shadow-sm">
+                                    PRIMARY
+                                  </div>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -995,10 +1208,92 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                           className="bg-black text-white px-6 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all disabled:opacity-50 flex items-center gap-2"
                         >
                           {isFetching ? <Loader2 className="animate-spin" size={20} /> : <Search size={20} />}
-                          Review
+                          {showReview ? 'Re-Fetch' : 'Review'}
                         </button>
                       </div>
                     </div>
+
+                    {showReview && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="p-6 bg-blue-50 rounded-3xl border border-blue-100 space-y-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-bold text-blue-900 flex items-center gap-2">
+                            <CheckCircle size={16} className="text-blue-500" /> AI Review Results
+                          </h3>
+                          <button 
+                            type="button"
+                            onClick={() => setShowReview(false)}
+                            className="text-blue-400 hover:text-blue-600"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="space-y-3">
+                            <p className="text-xs font-bold text-blue-800 uppercase">Primary Image</p>
+                            <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-blue-200 relative group">
+                              <img 
+                                src={sourcingForm.image} 
+                                alt="Preview" 
+                                className="w-full h-full object-contain"
+                                referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/400/400";
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    // Trigger a re-render by slightly modifying the URL if possible or just toast
+                                    toast.info("Refreshing image...");
+                                    const current = sourcingForm.image;
+                                    setSourcingForm(prev => ({...prev, image: ''}));
+                                    setTimeout(() => setSourcingForm(prev => ({...prev, image: current})), 100);
+                                  }}
+                                  className="bg-white p-2 rounded-full shadow-lg text-blue-600"
+                                >
+                                  <RefreshCcw size={20} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-3">
+                            <p className="text-xs font-bold text-blue-800 uppercase">Gallery ({sourcingForm.images?.length || 0})</p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {sourcingForm.images?.slice(0, 6).map((img, i) => (
+                                <div key={i} className="aspect-square rounded-lg overflow-hidden border border-blue-200 bg-white">
+                                  <img src={img} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                </div>
+                              ))}
+                              {sourcingForm.images && sourcingForm.images.length > 6 && (
+                                <div className="aspect-square rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">
+                                  +{sourcingForm.images.length - 6}
+                                </div>
+                              )}
+                            </div>
+                            <div className="pt-2">
+                              <p className="text-xs font-bold text-blue-800 uppercase mb-1">Variants Found</p>
+                              <div className="flex flex-wrap gap-1">
+                                {sourcingForm.variants?.map((v, i) => (
+                                  <span key={i} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">
+                                    {v.name} ({v.options.length})
+                                  </span>
+                                ))}
+                                {(!sourcingForm.variants || sourcingForm.variants.length === 0) && (
+                                  <span className="text-[10px] text-blue-400 italic">No variants detected</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
 
                     <div className="flex gap-4 pt-4">
                       <button 
@@ -1052,193 +1347,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                 </div>
               </div>
             </div>
-          ) : activeTab === 'products' ? (
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <ShoppingBag className="text-primary" /> Product Management
-                </h2>
-                <button 
-                  onClick={() => setActiveTab('sourcing')}
-                  className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-orange-600 transition-all flex items-center gap-2"
-                >
-                  <Plus size={18} /> Add New
-                </button>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {products.length === 0 ? (
-                  <div className="col-span-full py-12 text-center text-gray-500">
-                    No products found in the database.
-                  </div>
-                ) : (
-                  products.map(product => (
-                    <div key={product.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50 flex gap-4 group">
-                      <div className="w-20 h-20 rounded-xl overflow-hidden bg-white shrink-0">
-                        <img src={product.image} alt={product.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-bold text-sm text-gray-900 line-clamp-1">{product.title}</h3>
-                        <p className="text-primary font-bold text-sm mt-1">
-                          {product.price_bdt ? formatBDT(product.price_bdt) : formatBDT(product.price_rmb * 18)}
-                        </p>
-                        <div className="flex gap-2 mt-2">
-                          <button 
-                            onClick={() => deleteDocument('products', product.id)}
-                            className="text-red-500 p-2 hover:bg-red-50 rounded-lg transition-all"
-                            title="Delete Product"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                          <a 
-                            href={product.source_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-gray-400 p-2 hover:bg-gray-100 rounded-lg transition-all"
-                            title="View Source"
-                          >
-                            <ExternalLink size={16} />
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          ) : activeTab === 'categories' ? (
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <List className="text-primary" /> Category Management
-              </h2>
-              <form onSubmit={handleAddCategory} className="flex gap-4 mb-8">
-                <input 
-                  type="text" 
-                  placeholder="Category Name"
-                  className="flex-1 px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
-                  value={newCategory.name}
-                  onChange={e => setNewCategory({...newCategory, name: e.target.value})}
-                />
-                <button type="submit" className="bg-black text-white px-8 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all">
-                  Add Category
-                </button>
-              </form>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {categories.map(cat => (
-                  <div key={cat.id} className="p-4 bg-gray-50 rounded-2xl flex items-center justify-between group">
-                    <span className="font-medium">{cat.name}</span>
-                    <button onClick={() => deleteDocument('categories', cat.id)} className="text-red-500 opacity-0 group-hover:opacity-100 transition-all">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : activeTab === 'banners' ? (
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <ImageIcon className="text-primary" /> Banner Management
-              </h2>
-              <form onSubmit={handleAddBanner} className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                <input 
-                  type="text" 
-                  placeholder="Banner Title"
-                  className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
-                  value={newBanner.title}
-                  onChange={e => setNewBanner({...newBanner, title: e.target.value})}
-                />
-                <input 
-                  type="text" 
-                  placeholder="Banner Subtitle"
-                  className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
-                  value={newBanner.subtitle || ''}
-                  onChange={e => setNewBanner({...newBanner, subtitle: e.target.value})}
-                />
-                <input 
-                  type="text" 
-                  placeholder="Image URL"
-                  className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
-                  value={newBanner.image}
-                  onChange={e => setNewBanner({...newBanner, image: e.target.value})}
-                />
-                <select 
-                  className="px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none bg-white"
-                  value={newBanner.color || 'bg-primary'}
-                  onChange={e => setNewBanner({...newBanner, color: e.target.value})}
-                >
-                  <option value="bg-primary">Orange (Primary)</option>
-                  <option value="bg-secondary">Slate (Secondary)</option>
-                  <option value="bg-green-600">Green</option>
-                  <option value="bg-blue-600">Blue</option>
-                  <option value="bg-red-600">Red</option>
-                </select>
-                <button type="submit" className="md:col-span-2 bg-black text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition-all">
-                  Add Banner
-                </button>
-              </form>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {banners.map(banner => (
-                  <div key={banner.id} className="relative rounded-2xl overflow-hidden group aspect-video">
-                    <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
-                      <button onClick={() => deleteDocument('banners', banner.id)} className="bg-white text-red-500 p-3 rounded-full">
-                        <Trash2 size={20} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : activeTab === 'footer-settings' ? (
-            <div className="space-y-8">
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                  <Settings className="text-primary" /> Footer Configuration
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Company Name</label>
-                    <input type="text" defaultValue="China-BD Sourcing Pro" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Contact Email</label>
-                    <input type="email" defaultValue="support@sourcingpro.bd" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">WhatsApp Number</label>
-                    <input type="text" defaultValue="+8801234567890" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Facebook Page URL</label>
-                    <input type="text" defaultValue="https://facebook.com/sourcingpro" className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none" />
-                  </div>
-                </div>
-                <button className="mt-8 bg-black text-white px-8 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all">
-                  Save Footer Settings
-                </button>
-              </div>
-            </div>
-          ) : activeTab === 'page-content' ? (
-            <div className="space-y-8">
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                  <FileText className="text-primary" /> Page Content Management
-                </h2>
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">About Us Page</label>
-                    <textarea rows={6} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none text-sm" defaultValue="We are the leading sourcing agent in Bangladesh, connecting you directly with Chinese suppliers..." />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Terms & Conditions</label>
-                    <textarea rows={6} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none text-sm" defaultValue="By using our services, you agree to the following terms..." />
-                  </div>
-                </div>
-                <button className="mt-8 bg-black text-white px-8 py-3 rounded-xl font-bold hover:bg-gray-800 transition-all">
-                  Update Content
-                </button>
-              </div>
-            </div>
+
           ) : activeTab === 'withdrawals' || activeTab === 'refunds' || activeTab === 'refund-list' || activeTab === 'already-refunded' ? (
             <div className="space-y-4">
               {filteredRefunds.length === 0 ? (
