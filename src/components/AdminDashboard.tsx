@@ -190,10 +190,15 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   const [profitMargin, setProfitMargin] = useState(0);
 
   const fixDriveUrl = (url: string) => {
-    if (url && url.includes('lh3.googleusercontent.com/d/')) {
-      return url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
+    if (!url) return url;
+    let fixedUrl = url;
+    if (url.includes('lh3.googleusercontent.com/d/')) {
+      fixedUrl = url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
     }
-    return url;
+    if (fixedUrl.startsWith('//')) {
+      fixedUrl = 'https:' + fixedUrl;
+    }
+    return fixedUrl;
   };
 
   const handleFetchDetails = async () => {
@@ -207,17 +212,29 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Extract product details from this URL: ${sourcingForm.source_url}. 
-        Return JSON with: title, price_rmb (number), image (url), images (array of urls), description, video (url or empty), 
-        variants (array of {name: string, options: string[]}), category, specs (array of {label: string, value: string}).
-        IMPORTANT: 
-        1. The 'image' field MUST be the primary high-resolution product image.
-        2. The 'images' array should contain ALL available high-quality gallery images (at least 8-12 if possible).
-        3. Look for images in the main gallery, product description, and specification sections.
-        4. Ensure all image URLs are direct links (e.g., ending in .jpg, .png, .webp).
-        5. For 1688/Alibaba/Taobao, look for images in the 'obj' or 'gallery' data structures in the page source.
-        6. REMOVE any thumbnail suffixes from image URLs (e.g., remove _50x50.jpg, _Q90.jpg, etc. to get the original image).
-        7. DO NOT provide mock data. If you cannot find the data, return an empty object or error.`,
+        contents: `Analyze the product page at this URL: ${sourcingForm.source_url}.
+        
+        Your task is to extract all relevant product information for an e-commerce site.
+        
+        Return a JSON object with the following fields:
+        - title: The full product name.
+        - price_rmb: The unit price in RMB (as a number).
+        - image: The main high-resolution product image URL.
+        - images: An array of ALL gallery image URLs found on the page.
+        - description: A comprehensive product description. Look for it in the 'Product Details', 'Overview', or 'Description' tabs. If it's in Chinese, translate it to English. BE VERY AGGRESSIVE: look for any text that describes the product features, materials, or usage. If you find multiple sections, combine them into one detailed description.
+        - video: A URL to the product video if available.
+        - category: A suitable category for this product.
+        - specs: An array of objects with {label, value} for product specifications. Look for these in the 'Specifications' or 'Details' table.
+        - variants: An array of objects with {name, options[]} for product options (e.g., Color, Size). Look for these in the selection area.
+        
+        CRITICAL INSTRUCTIONS FOR ALIBABA/1688:
+        1. Look for 'window.detailData', 'window.detailConfig', or 'iDetailData' in the script tags of the HTML source. These often contain the real image URLs and descriptions.
+        2. Look for images in the main product slider, description body, and detail sections.
+        3. CLEAN ALL IMAGE URLs: Remove any thumbnail or resizing suffixes like '_50x50.jpg', '_Q90.jpg', '_300x300.jpg', '_640x640.jpg', etc. We need the ORIGINAL high-res images.
+        4. Ensure all URLs start with 'https:'.
+        5. If you find images in the description that are relevant, add them to the images array.
+        
+        If you cannot find a specific field, return an empty string or empty array for that field. DO NOT use placeholder or mock data.`,
         config: {
           tools: [{ urlContext: {} }],
           responseMimeType: "application/json",
@@ -256,17 +273,43 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         }
       });
 
-      const data = JSON.parse(response.text);
+      let text = response.text;
+      if (text.includes('```json')) {
+        text = text.split('```json')[1].split('```')[0];
+      } else if (text.includes('```')) {
+        text = text.split('```')[1].split('```')[0];
+      }
       
-      // Ensure image URLs have protocol
-      if (data.image && data.image.startsWith('//')) {
-        data.image = 'https:' + data.image;
-      }
-      if (data.images) {
-        data.images = data.images.map((img: string) => img.startsWith('//') ? 'https:' + img : img);
-      }
+      const data = JSON.parse(text.trim());
+      
+      // Advanced Image Cleaning Function
+      const cleanImageUrl = (url: string) => {
+        if (!url) return '';
+        let cleaned = url.trim();
+        
+        // Handle protocol-relative URLs
+        if (cleaned.startsWith('//')) cleaned = 'https:' + cleaned;
+        
+        // Remove common Alibaba/1688 thumbnail suffixes while keeping the extension
+        // Matches things like _400x400.jpg, _Q90.jpg, _sum.jpg, etc.
+        // Also handles .webp and other formats
+        cleaned = cleaned.replace(/(_\d+x\d+|_Q\d+|_sum|_640x640|_300x300|_50x50|_100x100|_200x200)(\.jpg|\.png|\.webp|\.jpeg).*$/, '$2');
+        
+        // Also handle cases where the suffix is after the extension like .jpg_400x400.jpg
+        cleaned = cleaned.replace(/(\.jpg|\.png|\.webp|\.jpeg)_\d+x\d+.*$/, '$1');
+        cleaned = cleaned.replace(/(\.jpg|\.png|\.webp|\.jpeg)_Q\d+.*$/, '$1');
+        
+        // Remove any query parameters that might interfere with loading
+        if (cleaned.includes('?')) {
+          cleaned = cleaned.split('?')[0];
+        }
+        
+        return cleaned;
+      };
 
-      // Ensure primary image is set if missing but gallery exists
+      if (data.image) data.image = cleanImageUrl(data.image);
+      if (data.images) data.images = data.images.map((img: string) => cleanImageUrl(img)).filter((img: string) => img);
+
       if (!data.image && data.images && data.images.length > 0) {
         data.image = data.images[0];
       }
@@ -274,10 +317,10 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       setSourcingForm(prev => ({
         ...prev,
         ...data,
-        source_url: prev.source_url // Keep the original URL
+        source_url: prev.source_url
       }));
       setShowReview(true);
-      toast.success('Product details fetched for review');
+      toast.success('Product details fetched successfully');
     } catch (error) {
       console.error('Fetch error:', error);
       toast.error('Failed to fetch details. Please fill manually or try again.');
@@ -1049,7 +1092,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {banners.map(banner => (
                       <div key={banner.id} className="relative rounded-2xl overflow-hidden group aspect-video shadow-sm border border-gray-100">
-                        <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <img src={fixDriveUrl(banner.image)} alt={banner.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all p-4 text-center">
                           <h4 className="text-white font-bold mb-1">{banner.title}</h4>
                           <p className="text-white/80 text-xs mb-4">{banner.subtitle}</p>
@@ -1344,7 +1387,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                               <td className="py-4 px-4">
                                 <div className="flex items-center gap-4">
                                   <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-100 shrink-0 border border-gray-100">
-                                    <img src={product.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    <img src={fixDriveUrl(product.image)} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                   </div>
                                   <div className="min-w-0">
                                     <h3 className="font-bold text-sm text-gray-900 line-clamp-1">{product.title}</h3>
@@ -1535,10 +1578,11 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             {sourcingForm.images.map((img, idx) => (
                               <div key={idx} className={`relative group aspect-square rounded-xl border-2 overflow-hidden bg-gray-50 ${sourcingForm.image === img ? 'border-primary' : 'border-transparent hover:border-gray-200'}`}>
                                 <img 
-                                  src={img} 
+                                  src={fixDriveUrl(img)} 
                                   alt={`Gallery ${idx}`} 
                                   className="w-full h-full object-cover cursor-pointer"
                                   onClick={() => setSourcingForm({...sourcingForm, image: img})}
+                                  referrerPolicy="no-referrer"
                                   onError={(e) => {
                                     (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/100/100";
                                   }}
@@ -1627,12 +1671,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             <p className="text-xs font-bold text-blue-800 uppercase">Primary Image</p>
                             <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-blue-200 relative group">
                               <img 
-                                src={fixDriveUrl(sourcingForm.image)} 
+                                src={fixDriveUrl(sourcingForm.image) || "https://placehold.co/400x400/f3f4f6/94a3b8?text=No+Image+Found"} 
                                 alt="Preview" 
                                 className="w-full h-full object-contain"
                                 referrerPolicy="no-referrer"
                                 onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "https://picsum.photos/seed/no-image/400/400";
+                                  (e.target as HTMLImageElement).src = "https://placehold.co/400x400/f3f4f6/94a3b8?text=Image+Error";
                                 }}
                               />
                               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -1658,7 +1702,15 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             <div className="grid grid-cols-3 gap-2">
                               {sourcingForm.images?.slice(0, 6).map((img, i) => (
                                 <div key={i} className="aspect-square rounded-lg overflow-hidden border border-blue-200 bg-white">
-                                  <img src={fixDriveUrl(img)} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  <img 
+                                    src={fixDriveUrl(img) || "https://placehold.co/100x100/f3f4f6/94a3b8?text=No+Img"} 
+                                    alt="" 
+                                    className="w-full h-full object-cover" 
+                                    referrerPolicy="no-referrer"
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = "https://placehold.co/100x100/f3f4f6/94a3b8?text=Error";
+                                    }}
+                                  />
                                 </div>
                               ))}
                               {sourcingForm.images && sourcingForm.images.length > 6 && (
@@ -1827,7 +1879,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                           {/* Product Image */}
                           <div className="w-full lg:w-48 h-48 rounded-2xl border border-gray-100 overflow-hidden bg-gray-50 shrink-0">
                             <img 
-                              src={order.items[0]?.image} 
+                              src={fixDriveUrl(order.items[0]?.image)} 
                               alt="" 
                               className="w-full h-full object-cover" 
                               referrerPolicy="no-referrer" 
@@ -1903,7 +1955,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                               <div className="p-3 bg-orange-50 rounded-xl border border-orange-100 flex items-center gap-4">
                                 <div className="w-12 h-12 bg-white rounded-lg border border-orange-200 overflow-hidden shrink-0">
                                   <img 
-                                    src={order.paymentProof} 
+                                    src={fixDriveUrl(order.paymentProof)} 
                                     alt="Proof" 
                                     className="w-full h-full object-cover cursor-pointer" 
                                     referrerPolicy="no-referrer"
@@ -2063,7 +2115,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                     {selectedOrder.items.map((item, idx) => (
                       <div key={idx} className="flex gap-4 items-center bg-white border border-gray-100 p-3 rounded-xl">
                         <img 
-                          src={item.image} 
+                          src={fixDriveUrl(item.image)} 
                           alt="" 
                           className="w-12 h-12 rounded-lg object-cover" 
                           referrerPolicy="no-referrer" 
@@ -2102,7 +2154,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                     <h3 className="font-bold text-gray-900">Payment Proof</h3>
                     <div className="flex gap-4 items-center bg-orange-50 p-4 rounded-2xl border border-orange-100">
                       <img 
-                        src={selectedOrder.paymentProof} 
+                        src={fixDriveUrl(selectedOrder.paymentProof)} 
                         alt="Proof" 
                         className="w-24 h-24 rounded-xl object-cover border-2 border-white shadow-sm cursor-pointer" 
                         referrerPolicy="no-referrer"

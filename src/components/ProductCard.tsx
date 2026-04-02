@@ -11,10 +11,15 @@ interface ProductCardProps {
 
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const fixDriveUrl = (url: string) => {
-    if (url && url.includes('lh3.googleusercontent.com/d/')) {
-      return url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
+    if (!url) return url;
+    let fixedUrl = url;
+    if (url.includes('lh3.googleusercontent.com/d/')) {
+      fixedUrl = url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
     }
-    return url;
+    if (fixedUrl.startsWith('//')) {
+      fixedUrl = 'https:' + fixedUrl;
+    }
+    return fixedUrl;
   };
 
   const productImage = fixDriveUrl(product.image || (product.images && product.images[0]) || "");
@@ -33,6 +38,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           src={productImage || "https://picsum.photos/seed/no-image/400/400"} 
           alt={product.title}
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+          referrerPolicy="no-referrer"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             if (!target.src.includes('picsum.photos/seed/error')) {

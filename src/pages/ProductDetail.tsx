@@ -24,10 +24,15 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
 
   const fixDriveUrl = (url: string) => {
-    if (url && url.includes('lh3.googleusercontent.com/d/')) {
-      return url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
+    if (!url) return url;
+    let fixedUrl = url;
+    if (url.includes('lh3.googleusercontent.com/d/')) {
+      fixedUrl = url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
     }
-    return url;
+    if (fixedUrl.startsWith('//')) {
+      fixedUrl = 'https:' + fixedUrl;
+    }
+    return fixedUrl;
   };
 
   const displayPrice = product?.price_bdt ? formatBDT(product.price_bdt) : (product ? formatPrice(product.price_rmb) : '');
@@ -121,15 +126,16 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
             className="aspect-square rounded-2xl overflow-hidden bg-gray-50 border border-gray-100"
           >
             <img 
-              src={activeImage} 
+              src={fixDriveUrl(activeImage)} 
               alt={product.title}
               className="w-full h-full object-contain"
+              referrerPolicy="no-referrer"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 // If the active image fails, try the first available image from the gallery that isn't the current one
                 const fallback = allImages.find(img => img !== activeImage && img);
                 if (fallback && !target.src.includes('picsum.photos/seed/error')) {
-                  setActiveImage(fallback);
+                  setActiveImage(fixDriveUrl(fallback));
                 } else {
                   target.src = "https://picsum.photos/seed/error/400/400";
                 }
@@ -143,7 +149,12 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
                 onClick={() => setActiveImage(fixDriveUrl(img))}
                 className={`flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-gray-50 border cursor-pointer transition-all snap-start ${activeImage === fixDriveUrl(img) ? 'border-primary ring-2 ring-primary/20' : 'border-gray-100 hover:border-primary'}`}
               >
-                <img src={fixDriveUrl(img)} alt="" className="w-full h-full object-cover" />
+                <img 
+                  src={fixDriveUrl(img)} 
+                  alt="" 
+                  className="w-full h-full object-cover" 
+                  referrerPolicy="no-referrer"
+                />
               </div>
             ))}
           </div>

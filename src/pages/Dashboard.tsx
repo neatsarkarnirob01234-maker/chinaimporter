@@ -46,6 +46,18 @@ export default function Dashboard({ userProfile }: DashboardProps) {
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
 
+  const fixDriveUrl = (url: string) => {
+    if (!url) return url;
+    let fixedUrl = url;
+    if (url.includes('lh3.googleusercontent.com/d/')) {
+      fixedUrl = url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
+    }
+    if (fixedUrl.startsWith('//')) {
+      fixedUrl = 'https:' + fixedUrl;
+    }
+    return fixedUrl;
+  };
+
   useEffect(() => {
     if (!userProfile) return;
 
@@ -255,7 +267,7 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                         {order.items.map((item, idx) => (
                           <div key={idx} className="flex items-center gap-3 bg-gray-50 p-2 rounded-2xl border border-gray-100">
                             <div className="w-12 h-12 bg-white rounded-xl overflow-hidden border border-gray-100">
-                              <img src={item.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              <img src={fixDriveUrl(item.image)} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             </div>
                             <div className="min-w-0 pr-2">
                               <h4 className="font-bold text-[10px] truncate max-w-[120px]">{item.title}</h4>

@@ -11,6 +11,18 @@ interface CartProps {
 }
 
 export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps) {
+  const fixDriveUrl = (url: string) => {
+    if (!url) return url;
+    let fixedUrl = url;
+    if (url.includes('lh3.googleusercontent.com/d/')) {
+      fixedUrl = url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
+    }
+    if (fixedUrl.startsWith('//')) {
+      fixedUrl = 'https:' + fixedUrl;
+    }
+    return fixedUrl;
+  };
+
   const subtotal = cart.reduce((acc, item) => {
     const price = item.price_bdt || Math.round(item.price_rmb * 18.0);
     return acc + (price * item.quantity);
@@ -56,7 +68,7 @@ export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps
               className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 flex gap-4 items-center"
             >
               <div className="w-24 h-24 rounded-2xl overflow-hidden bg-gray-50 shrink-0">
-                <img src={item.image} alt={item.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <img src={fixDriveUrl(item.image)} alt={item.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               </div>
               
               <div className="flex-1 min-w-0">
