@@ -5,7 +5,7 @@ import { formatPrice, formatBDT } from "../lib/utils";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { collection, addDoc, serverTimestamp, doc, onSnapshot, runTransaction, increment } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, CartItem } from "../types";
 import { useNavigate } from "react-router-dom";
 
@@ -37,6 +37,9 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
       if (doc.exists()) {
         setPaymentSettings(doc.data() as any);
       }
+    }, (error) => {
+      console.error("Error fetching payment settings:", error);
+      handleFirestoreError(error, OperationType.GET, 'settings/payment');
     });
     return () => unsub();
   }, []);
@@ -132,6 +135,7 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
       console.error("Error creating order:", error);
       toast.error("There was a problem submitting your order");
       setIsSubmitting(false);
+      handleFirestoreError(error, OperationType.WRITE, 'orders');
     }
   };
 

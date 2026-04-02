@@ -85,6 +85,18 @@ service cloud.firestore {
     match /settings/{settingId} {
       allow read: if true;
       allow write: if isAdmin();
+      
+      // Allow users to increment order counter
+      allow update: if settingId == 'counters' && 
+        isAuthenticated() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['orderCount']) &&
+        request.resource.data.orderCount == resource.data.orderCount + 1;
+      
+      // Allow users to initialize order counter if it doesn't exist
+      allow create: if settingId == 'counters' && 
+        isAuthenticated() && 
+        request.resource.data.keys().hasOnly(['orderCount']) &&
+        request.resource.data.orderCount == 1001;
     }
   }
 }
