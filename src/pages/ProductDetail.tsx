@@ -35,8 +35,13 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
     return fixedUrl;
   };
 
-  const displayPrice = product?.price_bdt ? formatBDT(product.price_bdt) : (product ? formatPrice(product.price_rmb) : '');
-  const originalPrice = product?.price_bdt ? formatBDT(product.price_bdt * 1.2) : (product ? formatPrice(product.price_rmb * 1.2) : '');
+  const displayPrice = product?.price_bdt 
+    ? formatBDT(product.price_bdt * quantity) 
+    : (product ? formatPrice(product.price_rmb * quantity) : '');
+    
+  const originalPrice = product?.price_bdt 
+    ? formatBDT(product.price_bdt * 1.2 * quantity) 
+    : (product ? formatPrice(product.price_rmb * 1.2 * quantity) : '');
 
   useEffect(() => {
     if (!id) return;
@@ -172,10 +177,17 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 leading-tight">
               {product.title}
             </h1>
-            <div className="flex items-center gap-4">
-              <span className="text-3xl font-bold text-primary">{displayPrice}</span>
-              <span className="text-lg text-gray-400 line-through">{originalPrice}</span>
-              <span className="bg-red-100 text-red-600 text-xs font-bold px-2 py-1 rounded-lg">30% Off</span>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-4">
+                <span className="text-3xl font-bold text-primary">{displayPrice}</span>
+                <span className="text-lg text-gray-400 line-through">{originalPrice}</span>
+                <span className="bg-red-100 text-red-600 text-xs font-bold px-2 py-1 rounded-lg">30% Off</span>
+              </div>
+              {quantity > 1 && (
+                <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">
+                  Total for {quantity} pieces
+                </p>
+              )}
             </div>
           </div>
 
