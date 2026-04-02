@@ -683,10 +683,14 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     checkDriveStatus();
   }, []);
 
+  const safeFetch = async (url: string, options?: RequestInit) => {
+    return await window.fetch(url, options);
+  };
+
   const checkDriveStatus = async () => {
     try {
-      const res = await fetch('/api/auth/google/status');
-      const data = await res.json();
+      const response = await safeFetch('/api/auth/google/status', { credentials: 'include' });
+      const data = await response.json();
       setIsDriveConnected(data.connected);
     } catch (error) {
       console.error("Error checking drive status:", error);
@@ -695,8 +699,8 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
 
   const handleConnectDrive = async () => {
     try {
-      const res = await fetch('/api/auth/google/url');
-      const { url } = await res.json();
+      const response = await safeFetch('/api/auth/google/url', { credentials: 'include' });
+      const { url } = await response.json();
       const authWindow = window.open(url, 'google_auth', 'width=600,height=700');
       
       if (!authWindow) {
@@ -718,7 +722,11 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   };
 
   const handleBackupToDrive = async () => {
-    if (!isDriveConnected) return;
+    await checkDriveStatus();
+    if (!isDriveConnected) {
+      toast.error("Please connect your Google Drive account first.");
+      return;
+    }
     setIsBackingUp(true);
     try {
       // Collect all data from Firestore
@@ -737,21 +745,22 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         timestamp: new Date().toISOString()
       };
 
-      const res = await fetch('/api/drive/backup', {
+      const response = await safeFetch('/api/drive/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ 
           data: backupData, 
           fileName: `ChinaImporter_Backup_${new Date().toISOString().split('T')[0]}.json` 
         })
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.details || "Backup failed");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || "Backup failed");
       }
       
-      const data = await res.json();
+      const data = await response.json();
       toast.success("Full database backup saved to Google Drive!");
       window.open(data.link, '_blank');
     } catch (error: any) {
@@ -767,15 +776,16 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     
     setIsUploadingToDrive(true);
     try {
-      const res = await fetch('/api/drive/upload', {
+      const response = await safeFetch('/api/drive/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ base64Data, fileName, mimeType })
       });
       
-      if (!res.ok) throw new Error("Upload failed");
+      if (!response.ok) throw new Error("Upload failed");
       
-      const data = await res.json();
+      const data = await response.json();
       return data.directLink;
     } catch (error) {
       console.error("Drive upload error:", error);

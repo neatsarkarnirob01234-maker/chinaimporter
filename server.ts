@@ -19,15 +19,37 @@ const SCOPES = [
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(express.json({ limit: '50mb' }));
   app.use(cookieParser());
 
+  // CORS headers for credentials
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   const getOAuthClient = (req: express.Request) => {
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      console.error("CRITICAL: GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is not set in environment variables.");
+    }
+    
     // Use APP_URL from env if available, otherwise construct from request
     const baseUrl = process.env.APP_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers.host}`;
     const redirectUri = `${baseUrl.replace(/\/$/, '')}/auth/google/callback`;
+    
+    console.log("Using Redirect URI:", redirectUri);
     
     return new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
@@ -64,6 +86,7 @@ async function startServer() {
         httpOnly: true,
         secure: true,
         sameSite: 'none',
+        path: '/',
         maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
       });
 
@@ -167,14 +190,48 @@ async function startServer() {
   });
 
   app.post("/api/drive/backup", async (req, res) => {
-    const tokens = req.cookies.google_drive_tokens;
+    let tokens = req.cookies.google_drive_tokens;
+    
+    // Fallback: try to parse from raw cookie header if cookie-parser fails
+    if (!tokens && req.headers.cookie) {
+      const cookies = req.headers.cookie.split(';').reduce((acc: any, cookie) => {
+        const [name, value] = cookie.trim().split('=');
+        acc[name] = value;
+        return acc;
+      }, {});
+      if (cookies.google_drive_tokens) {
+        try {
+          tokens = JSON.parse(decodeURIComponent(cookies.google_drive_tokens));
+        } catch (e) {
+          console.error("Error parsing tokens from raw cookie:", e);
+        }
+      }
+    }
+
     if (!tokens) {
-      return res.status(401).json({ error: "Not connected to Google Drive" });
+      return res.status(401).json({ 
+        error: "Not connected to Google Drive", 
+        details: "Please connect your Google Drive account from the Admin Dashboard first." 
+      });
     }
 
     const { data, fileName } = req.body;
+    if (!data || !fileName) {
+      return res.status(400).json({ 
+        error: "Missing data", 
+        details: "Backup data or file name is missing." 
+      });
+    }
+
     const oauth2Client = getOAuthClient(req);
-    oauth2Client.setCredentials(JSON.parse(tokens));
+    try {
+      oauth2Client.setCredentials(JSON.parse(tokens));
+    } catch (e) {
+      return res.status(401).json({ 
+        error: "Invalid tokens", 
+        details: "Your Google Drive session has expired. Please reconnect." 
+      });
+    }
 
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
@@ -267,8 +324,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
