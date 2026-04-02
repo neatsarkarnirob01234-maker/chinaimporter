@@ -181,7 +181,7 @@ async function startServer() {
       res.json({ 
         id: file.data.id, 
         link: file.data.webViewLink,
-        directLink: `https://lh3.googleusercontent.com/d/${file.data.id}` 
+        directLink: `https://drive.google.com/uc?export=view&id=${file.data.id}` 
       });
     } catch (error) {
       console.error("Drive upload error:", error);

@@ -23,6 +23,13 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
   const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
 
+  const fixDriveUrl = (url: string) => {
+    if (url && url.includes('lh3.googleusercontent.com/d/')) {
+      return url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
+    }
+    return url;
+  };
+
   const displayPrice = product?.price_bdt ? formatBDT(product.price_bdt) : (product ? formatPrice(product.price_rmb) : '');
   const originalPrice = product?.price_bdt ? formatBDT(product.price_bdt * 1.2) : (product ? formatPrice(product.price_rmb * 1.2) : '');
 
@@ -34,7 +41,7 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
       if (docSnap.exists()) {
         const data = { id: docSnap.id, ...docSnap.data() } as Product;
         setProduct(data);
-        setActiveImage(data.image || (data.images && data.images[0]) || "");
+        setActiveImage(fixDriveUrl(data.image || (data.images && data.images[0]) || ""));
 
         // Fetch related products
         if (data.category) {
@@ -117,7 +124,6 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
               src={activeImage} 
               alt={product.title}
               className="w-full h-full object-contain"
-              referrerPolicy="no-referrer"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 // If the active image fails, try the first available image from the gallery that isn't the current one
@@ -134,10 +140,10 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
             {allImages.map((img, i) => (
               <div 
                 key={i} 
-                onClick={() => setActiveImage(img)}
-                className={`flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-gray-50 border cursor-pointer transition-all snap-start ${activeImage === img ? 'border-primary ring-2 ring-primary/20' : 'border-gray-100 hover:border-primary'}`}
+                onClick={() => setActiveImage(fixDriveUrl(img))}
+                className={`flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-gray-50 border cursor-pointer transition-all snap-start ${activeImage === fixDriveUrl(img) ? 'border-primary ring-2 ring-primary/20' : 'border-gray-100 hover:border-primary'}`}
               >
-                <img src={img} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <img src={fixDriveUrl(img)} alt="" className="w-full h-full object-cover" />
               </div>
             ))}
           </div>

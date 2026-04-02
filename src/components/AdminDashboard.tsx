@@ -187,6 +187,13 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   const [showReview, setShowReview] = useState(false);
   const [profitMargin, setProfitMargin] = useState(0);
 
+  const fixDriveUrl = (url: string) => {
+    if (url && url.includes('lh3.googleusercontent.com/d/')) {
+      return url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
+    }
+    return url;
+  };
+
   const handleFetchDetails = async () => {
     if (!sourcingForm.source_url) {
       toast.error('Please enter a source URL');
@@ -205,10 +212,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         1. The 'image' field MUST be the primary high-resolution product image.
         2. The 'images' array should contain ALL available high-quality gallery images (at least 8-12 if possible).
         3. Look for images in the main gallery, product description, and specification sections.
-        4. If you cannot access the URL, provide realistic mock data based on the URL context.
-        5. Ensure all image URLs are direct links (e.g., ending in .jpg, .png, .webp).
-        6. For 1688/Alibaba/Taobao, look for images in the 'obj' or 'gallery' data structures in the page source.`,
+        4. Ensure all image URLs are direct links (e.g., ending in .jpg, .png, .webp).
+        5. For 1688/Alibaba/Taobao, look for images in the 'obj' or 'gallery' data structures in the page source.
+        6. REMOVE any thumbnail suffixes from image URLs (e.g., remove _50x50.jpg, _Q90.jpg, etc. to get the original image).
+        7. DO NOT provide mock data. If you cannot find the data, return an empty object or error.`,
         config: {
+          tools: [{ urlContext: {} }],
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -1422,7 +1431,6 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                   alt={`Gallery ${idx}`} 
                                   className="w-full h-full object-cover cursor-pointer"
                                   onClick={() => setSourcingForm({...sourcingForm, image: img})}
-                                  referrerPolicy="no-referrer"
                                   onError={(e) => {
                                     (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/100/100";
                                   }}
@@ -1511,12 +1519,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             <p className="text-xs font-bold text-blue-800 uppercase">Primary Image</p>
                             <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-blue-200 relative group">
                               <img 
-                                src={sourcingForm.image} 
+                                src={fixDriveUrl(sourcingForm.image)} 
                                 alt="Preview" 
                                 className="w-full h-full object-contain"
                                 referrerPolicy="no-referrer"
                                 onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "https://picsum.photos/seed/error/400/400";
+                                  (e.target as HTMLImageElement).src = "https://picsum.photos/seed/no-image/400/400";
                                 }}
                               />
                               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -1542,7 +1550,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             <div className="grid grid-cols-3 gap-2">
                               {sourcingForm.images?.slice(0, 6).map((img, i) => (
                                 <div key={i} className="aspect-square rounded-lg overflow-hidden border border-blue-200 bg-white">
-                                  <img src={img} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  <img src={fixDriveUrl(img)} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 </div>
                               ))}
                               {sourcingForm.images && sourcingForm.images.length > 6 && (

@@ -10,6 +10,14 @@ interface ProductCardProps {
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+  const fixDriveUrl = (url: string) => {
+    if (url && url.includes('lh3.googleusercontent.com/d/')) {
+      return url.replace('lh3.googleusercontent.com/d/', 'drive.google.com/uc?export=view&id=');
+    }
+    return url;
+  };
+
+  const productImage = fixDriveUrl(product.image || (product.images && product.images[0]) || "");
   const displayPrice = product.price_bdt ? formatBDT(product.price_bdt) : formatPrice(product.price_rmb);
   const originalPrice = product.price_bdt ? formatBDT(product.price_bdt * 1.2) : formatPrice(product.price_rmb * 1.2);
 
@@ -22,10 +30,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     >
       <Link to={`/product/${product.id}`} className="block relative aspect-square overflow-hidden bg-gray-50">
         <img 
-          src={product.image || (product.images && product.images[0]) || "https://picsum.photos/seed/no-image/400/400"} 
+          src={productImage || "https://picsum.photos/seed/no-image/400/400"} 
           alt={product.title}
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-          referrerPolicy="no-referrer"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             if (!target.src.includes('picsum.photos/seed/error')) {
