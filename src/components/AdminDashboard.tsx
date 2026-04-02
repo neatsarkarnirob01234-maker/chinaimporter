@@ -15,6 +15,7 @@ import {
   DollarSign,
   ArrowRight,
   Users,
+  Edit,
   Edit2,
   Trash2,
   Loader2,
@@ -138,6 +139,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     bank: 'Account Name: ...\nAccount Number: ...\nBank Name: ...\nBranch: ...'
   });
   const [savingSettings, setSavingSettings] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'settings', 'payment'), (doc) => {
@@ -331,6 +333,26 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     };
   }, []);
 
+  const handleEditProduct = (product: Product) => {
+    setSourcingForm({
+      title: product.title,
+      price_rmb: product.price_rmb,
+      price_bdt: product.price_bdt,
+      image: product.image,
+      images: product.images || [],
+      source_url: product.source_url || '',
+      category: product.category || 'General',
+      description: product.description || '',
+      video: product.video || '',
+      variants: product.variants || [],
+      specs: product.specs || []
+    });
+    setEditingProductId(product.id);
+    setActiveTab('sourcing');
+    setShowReview(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
     try {
       await updateDoc(doc(db, 'orders', orderId), { 
@@ -498,14 +520,26 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
 
       const finalPriceRmb = Number(sourcingForm.price_rmb) * (1 + profitMargin / 100);
       
-      await addDoc(collection(db, 'products'), {
+      const productData = {
         ...sourcingForm,
         image: mainImageUrl,
         images: galleryUrls,
         price_rmb: finalPriceRmb,
         price_bdt: sourcingForm.price_bdt || Math.round(finalPriceRmb * 18.0),
-        createdAt: serverTimestamp()
-      });
+        updatedAt: serverTimestamp()
+      };
+
+      if (editingProductId) {
+        await updateDoc(doc(db, 'products', editingProductId), productData);
+        toast.success('Product updated successfully');
+      } else {
+        await addDoc(collection(db, 'products'), {
+          ...productData,
+          createdAt: serverTimestamp()
+        });
+        toast.success('Product added successfully to site');
+      }
+
       setSourcingForm({ 
         title: '', 
         price_rmb: 0, 
@@ -519,11 +553,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         variants: [],
         specs: []
       });
+      setEditingProductId(null);
       setShowReview(false);
-      toast.success('Product added successfully to site');
+      setActiveTab('products');
     } catch (error) {
-      console.error('Error adding product:', error);
-      toast.error('Failed to add product. If using an uploaded image, it might be too large.');
+      console.error('Error saving product:', error);
+      toast.error('Failed to save product. If using an uploaded image, it might be too large.');
     }
   };
 
@@ -608,12 +643,25 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   };
 
   const deleteDocument = async (coll: string, id: string) => {
-    if (!window.confirm('Are you sure you want to delete this? This action cannot be undone.')) return;
+    console.log('--- DELETE ATTEMPT START ---');
+    console.log('Collection:', coll);
+    console.log('ID:', id);
+    
+    const confirmDelete = window.confirm('Are you sure you want to delete this?');
+    if (!confirmDelete) {
+      console.log('Delete cancelled by user');
+      return;
+    }
+
     try {
+      console.log('Sending delete request to Firestore...');
       await deleteDoc(doc(db, coll, id));
+      console.log('Delete request successful');
       toast.success('Deleted successfully');
     } catch (error) {
+      console.error('CRITICAL DELETE ERROR:', error);
       toast.error('Failed to delete');
+      handleFirestoreError(error, OperationType.DELETE, `${coll}/${id}`);
     }
   };
 
@@ -1243,56 +1291,112 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                 </div>
               ) : activeTab === 'products' ? (
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold flex items-center gap-2">
-                      <ShoppingBag className="text-primary" /> Product Management
-                    </h2>
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h2 className="text-2xl font-bold flex items-center gap-2 text-gray-900">
+                        <ShoppingBag className="text-primary" size={28} /> Product Management
+                      </h2>
+                      <p className="text-gray-500 text-sm mt-1">Manage your store products, edit details or remove items.</p>
+                    </div>
                     <button 
-                      onClick={() => setActiveTab('sourcing')}
-                      className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-orange-600 transition-all flex items-center gap-2"
+                      onClick={() => {
+                        setEditingProductId(null);
+                        setSourcingForm({
+                          title: '',
+                          price_rmb: 0,
+                          image: '',
+                          images: [],
+                          source_url: '',
+                          category: 'General',
+                          description: '',
+                          video: '',
+                          variants: [],
+                          specs: []
+                        });
+                        setActiveTab('sourcing');
+                      }}
+                      className="bg-primary text-white px-6 py-3 rounded-2xl font-bold hover:bg-orange-600 transition-all flex items-center gap-2 shadow-lg shadow-orange-100"
                     >
-                      <Plus size={18} /> Add New
+                      <Plus size={20} /> Add New Product
                     </button>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {products.length === 0 ? (
-                      <div className="col-span-full py-12 text-center text-gray-500">
-                        No products found in the database.
-                      </div>
-                    ) : (
-                      products.map(product => (
-                        <div key={product.id} className="p-4 rounded-2xl border border-gray-100 bg-gray-50 flex gap-4 group hover:bg-white hover:shadow-md transition-all">
-                          <div className="w-20 h-20 rounded-xl overflow-hidden bg-white shrink-0 border border-gray-100">
-                            <img src={product.image} alt={product.title} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-bold text-sm text-gray-900 line-clamp-1">{product.title}</h3>
-                            <p className="text-primary font-bold text-sm mt-1">
-                              {product.price_bdt ? formatBDT(product.price_bdt) : formatBDT(product.price_rmb * 18)}
-                            </p>
-                            <div className="flex gap-2 mt-2">
-                              <button 
-                                onClick={() => deleteDocument('products', product.id)}
-                                className="text-red-500 p-2 hover:bg-red-50 rounded-lg transition-all"
-                                title="Delete Product"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                              <a 
-                                href={product.source_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-gray-400 p-2 hover:bg-gray-100 rounded-lg transition-all"
-                                title="View Source"
-                              >
-                                <ExternalLink size={16} />
-                              </a>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-gray-100">
+                          <th className="text-left py-4 px-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Product</th>
+                          <th className="text-left py-4 px-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Category</th>
+                          <th className="text-left py-4 px-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Price</th>
+                          <th className="text-right py-4 px-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {products.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-12 text-center text-gray-500">
+                              No products found in the database.
+                            </td>
+                          </tr>
+                        ) : (
+                          products.map(product => (
+                            <tr key={product.id} className="hover:bg-gray-50 transition-colors group">
+                              <td className="py-4 px-4">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-100 shrink-0 border border-gray-100">
+                                    <img src={product.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  </div>
+                                  <div className="min-w-0">
+                                    <h3 className="font-bold text-sm text-gray-900 line-clamp-1">{product.title}</h3>
+                                    <p className="text-[10px] text-gray-400 mt-0.5 font-mono uppercase">{product.id}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-4 px-4">
+                                <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold uppercase">
+                                  {product.category || 'General'}
+                                </span>
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className="font-bold text-sm text-primary">
+                                  {product.price_bdt ? formatBDT(product.price_bdt) : formatBDT(product.price_rmb * 18)}
+                                </div>
+                                <div className="text-[10px] text-gray-400">
+                                  ¥{product.price_rmb.toFixed(2)}
+                                </div>
+                              </td>
+                              <td className="py-4 px-4">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button 
+                                    onClick={() => handleEditProduct(product)}
+                                    className="p-2 text-blue-500 hover:bg-blue-50 rounded-xl transition-all"
+                                    title="Edit Product"
+                                  >
+                                    <Edit size={18} />
+                                  </button>
+                                  <button 
+                                    onClick={() => deleteDocument('products', product.id)}
+                                    className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                    title="Delete Product"
+                                  >
+                                    <Trash2 size={18} />
+                                  </button>
+                                  <a 
+                                    href={product.source_url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="p-2 text-gray-400 hover:bg-gray-100 rounded-xl transition-all"
+                                    title="View Source"
+                                  >
+                                    <ExternalLink size={18} />
+                                  </a>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
           ) : activeTab === 'sourcing' ? (
@@ -1304,7 +1408,11 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                   className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100"
                 >
                   <h2 className="text-xl font-bold mb-8 flex items-center gap-2 text-secondary">
-                    <Plus className="text-primary" size={24} /> Link 1688/Alibaba Product
+                    {editingProductId ? (
+                      <><Edit className="text-primary" size={24} /> Update Product Details</>
+                    ) : (
+                      <><Plus className="text-primary" size={24} /> Link 1688/Alibaba Product</>
+                    )}
                   </h2>
                   
                   <form onSubmit={handleSourcingSubmit} className="space-y-6">
@@ -1592,17 +1700,19 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             specs: []
                           });
                           setProfitMargin(15);
+                          setEditingProductId(null);
+                          if (editingProductId) setActiveTab('products');
                         }}
                         className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-bold hover:bg-gray-200 transition-all"
                       >
-                        Clear Form
+                        {editingProductId ? 'Cancel' : 'Clear Form'}
                       </button>
                       <button 
                         type="submit"
                         disabled={isUploadingToDrive}
                         className="flex-[2] bg-primary text-white py-4 rounded-2xl font-bold shadow-xl shadow-orange-200 hover:bg-orange-600 transition-all transform hover:-translate-y-1 disabled:opacity-50"
                       >
-                        {isUploadingToDrive ? 'Uploading to Drive...' : 'Add to Site'}
+                        {isUploadingToDrive ? 'Uploading to Drive...' : (editingProductId ? 'Update Product' : 'Add to Site')}
                       </button>
                     </div>
                   </form>
