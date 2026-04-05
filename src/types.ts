@@ -48,11 +48,19 @@ export interface Order {
   createdAt: any;
   updatedAt: any;
   invoiceUrl?: string;
+  purchaseOrderId?: string;
+  csResponse?: string;
+  purchaseNote?: string;
   shippingAddress?: {
     name: string;
     phone: string;
     email: string;
+    emergencyPhone?: string;
+    district?: string;
+    city?: string;
     detail: string;
+    deliveryMethod?: string;
+    note?: string;
   };
 }
 
