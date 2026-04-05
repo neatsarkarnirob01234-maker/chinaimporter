@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { CreditCard, Truck, ShieldCheck, Upload, CheckCircle2, AlertCircle, ShoppingBag } from "lucide-react";
+import { CreditCard, Truck, ShieldCheck, Upload, CheckCircle2, AlertCircle, ShoppingBag, ChevronLeft } from "lucide-react";
 import { formatPrice, formatBDT } from "../lib/utils";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { collection, addDoc, serverTimestamp, doc, onSnapshot, runTransaction, increment } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, CartItem } from "../types";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 
 interface CheckoutProps {
   userProfile: UserProfile | null;
@@ -177,7 +177,12 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
-      <h1 className="text-3xl font-bold">Checkout</h1>
+      <div className="flex items-center gap-4">
+        <Link to="/cart" className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 hover:text-primary">
+          <ChevronLeft size={24} />
+        </Link>
+        <h1 className="text-3xl font-bold">Checkout</h1>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {/* Main Content */}

@@ -100,6 +100,28 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
     toast.success("Added to cart!");
   };
 
+  const handleBuyNow = () => {
+    if (!product) return;
+
+    // Check if all variants are selected
+    if (product.variants && product.variants.length > 0) {
+      const unselected = product.variants.find(v => !selectedVariants[v.name]);
+      if (unselected) {
+        toast.error(`Please select ${unselected.name}`);
+        return;
+      }
+    }
+
+    const cartItem: CartItem = {
+      ...product,
+      image: activeImage || product.image,
+      quantity: quantity,
+      selectedVariants
+    };
+    addToCart(cartItem);
+    navigate("/cart");
+  };
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -250,15 +272,15 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
                 <ShoppingCart size={20} />
                 Add to Cart
               </motion.button>
-              <a 
-                href={product.source_url} 
-                target="_blank" 
-                rel="noopener noreferrer"
+              <motion.button 
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleBuyNow}
                 className="flex-1 bg-gray-900 text-white h-14 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-black transition-all shadow-xl shadow-gray-200"
               >
-                <ExternalLink size={20} />
-                View Original
-              </a>
+                <CreditCard size={20} />
+                Buy Now
+              </motion.button>
             </div>
           </div>
 
