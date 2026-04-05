@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   CheckCircle, 
@@ -23,6 +23,7 @@ import {
   Video,
   List,
   Building2,
+  Smartphone,
   Edit3,
   Truck,
   Phone,
@@ -36,6 +37,9 @@ import {
   HardDrive,
   Download,
   Eye,
+  Ban,
+  PackageCheck,
+  Package,
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
@@ -78,6 +82,10 @@ type AdminTab =
   | 'already-refunded' 
   | 'pending-rmb' 
   | 'all-orders' 
+  | 'purchased'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled'
   | 'old-balance'
   | 'users' 
   | 'banners'
@@ -135,7 +143,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedRefund, setSelectedRefund] = useState<RefundRequest | null>(null);
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
-  const [refundPayoutData, setRefundPayoutData] = useState({ gatewayCharge: 0, transactionId: '' });
+  const [refundPayoutData, setRefundPayoutData] = useState({ amount: 0, note: '', gatewayCharge: 0, transactionId: '' });
   const [userEditData, setUserEditData] = useState({ walletBalance: 0, holdBalance: 0, role: 'user' });
   const [paymentSettings, setPaymentSettings] = useState({
     bkash: '01789-456123',
@@ -156,6 +164,21 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     }
   }, [selectedOrder]);
 
+  useEffect(() => {
+    if (selectedRefund) {
+      const isWithdrawal = !selectedRefund.orderId;
+      const user = users.find(u => u.uid === selectedRefund.userId);
+      const currentBalance = user?.walletBalance || 0;
+
+      setRefundPayoutData({
+        amount: isWithdrawal ? (selectedRefund.amount + currentBalance) : (selectedRefund.amount || 0),
+        note: selectedRefund.note || '',
+        gatewayCharge: selectedRefund.gatewayCharge || 0,
+        transactionId: selectedRefund.payoutTransactionId || ''
+      });
+    }
+  }, [selectedRefund, users]);
+
   const handleUpdateOrderDetails = async () => {
     if (!selectedOrder) return;
     try {
@@ -165,9 +188,35 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         status: modalStatus,
         updatedAt: serverTimestamp()
       });
+
+      // Automatically create refund request if cancelled or stock out
+      if ((modalStatus === 'Cancelled' || modalStatus === 'Stock Out') && selectedOrder.paidAmount > 0) {
+        // Check if a refund request already exists for this order to prevent duplicates
+        const existingRefunds = await getDocs(query(
+          collection(db, 'refundRequests'), 
+          where('orderId', '==', selectedOrder.id)
+        ));
+
+        if (existingRefunds.empty) {
+          await addDoc(collection(db, 'refundRequests'), {
+            userId: selectedOrder.userId,
+            userEmail: selectedOrder.userEmail,
+            userName: selectedOrder.shippingAddress?.name || 'N/A',
+            userPhone: selectedOrder.shippingAddress?.phone || 'N/A',
+            orderId: selectedOrder.id,
+            amount: selectedOrder.paidAmount,
+            status: 'Pending',
+            createdAt: serverTimestamp(),
+            reason: `Order ${modalStatus}: #${selectedOrder.orderNumber || selectedOrder.id.slice(0, 8)}`
+          });
+          toast.success('Refund request created automatically');
+        }
+      }
+
       toast.success('Order details updated');
       setSelectedOrder(null);
     } catch (error) {
+      console.error('Update error:', error);
       toast.error('Failed to update order details');
     }
   };
@@ -486,25 +535,71 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   const processRefundPayout = async () => {
     if (!selectedRefund) return;
     try {
-      await updateDoc(doc(db, 'refundRequests', selectedRefund.id), {
+      const batch = writeBatch(db);
+      const isWithdrawal = !selectedRefund.orderId;
+      
+      // 1. Update refund request status
+      const refundRef = doc(db, 'refundRequests', selectedRefund.id);
+      batch.update(refundRef, {
         status: 'Completed',
-        gatewayCharge: Number(refundPayoutData.gatewayCharge),
-        payoutTransactionId: refundPayoutData.transactionId
+        amount: Number(refundPayoutData.amount),
+        gatewayCharge: Number(refundPayoutData.gatewayCharge || 0),
+        payoutTransactionId: refundPayoutData.transactionId,
+        note: refundPayoutData.note,
+        updatedAt: serverTimestamp()
       });
+
+      // 2. Update user wallet balance
+      const userRef = doc(db, 'users', selectedRefund.userId);
+      if (!isWithdrawal) {
+        // Refund logic: add to wallet
+        batch.update(userRef, {
+          walletBalance: increment(Number(refundPayoutData.amount)),
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        // Withdrawal logic: set wallet to 0 as requested by admin
+        batch.update(userRef, {
+          walletBalance: 0,
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      await batch.commit();
+
       setSelectedRefund(null);
-      setRefundPayoutData({ gatewayCharge: 0, transactionId: '' });
-      toast.success('Refund payout completed');
+      setRefundPayoutData({ amount: 0, note: '', gatewayCharge: 0, transactionId: '' });
+      toast.success(isWithdrawal ? 'Withdrawal processed successfully' : 'Refund processed and added to user wallet');
     } catch (error) {
+      console.error('Refund error:', error);
       toast.error('Failed to process refund');
     }
   };
 
   const cancelRefundRequest = async (requestId: string) => {
+    if (!selectedRefund) return;
     try {
-      await updateDoc(doc(db, 'refundRequests', requestId), {
-        status: 'Cancelled'
+      const batch = writeBatch(db);
+      const isWithdrawal = !selectedRefund.orderId;
+
+      // 1. Update status
+      batch.update(doc(db, 'refundRequests', requestId), {
+        status: 'Cancelled',
+        updatedAt: serverTimestamp()
       });
-      toast.success('Refund request cancelled');
+
+      // 2. If it was a withdrawal, refund the money back to the wallet
+      if (isWithdrawal) {
+        const userRef = doc(db, 'users', selectedRefund.userId);
+        batch.update(userRef, {
+          walletBalance: increment(selectedRefund.amount),
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      await batch.commit();
+      setSelectedRefund(null);
+      toast.success(isWithdrawal ? 'Withdrawal rejected and funds returned to wallet' : 'Refund request cancelled');
     } catch (error) {
       toast.error('Failed to cancel request');
     }
@@ -775,8 +870,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     if (activeTab === 'all-orders') return true;
     if (activeTab === 'pending-confirm') return order.status === 'Order Placed';
     if (activeTab === 'confirmed') return order.status === 'Confirmed';
-    if (activeTab === 'pending-purchase') return order.status === 'Confirmed'; // Assuming confirmed means ready to purchase
+    if (activeTab === 'pending-purchase') return order.status === 'Confirmed';
+    if (activeTab === 'purchased') return order.status === 'Purchased';
+    if (activeTab === 'shipped') return order.status === 'Shipped';
     if (activeTab === 'bd-warehouse') return order.status === 'BD Warehouse';
+    if (activeTab === 'delivered') return order.status === 'Delivered';
+    if (activeTab === 'cancelled') return order.status === 'Cancelled';
     if (activeTab === 'refunds-stock-out') return order.status === 'Stock Out' || order.status === 'Refunded';
     if (activeTab === 'bank-payments') return order.paymentProof && order.status === 'Order Placed';
     if (activeTab === 'approved-bank-payments') return order.paymentProof && order.status !== 'Order Placed' && order.status !== 'Cancelled';
@@ -791,13 +890,72 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     return true;
   });
 
+  // Search filter for refunds
+  const finalFilteredRefunds = filteredRefunds.filter(refund => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      refund.userPhone?.toLowerCase().includes(q) ||
+      refund.orderId?.toLowerCase().includes(q) ||
+      refund.id.toLowerCase().includes(q) ||
+      refund.userEmail?.toLowerCase().includes(q) ||
+      refund.userName?.toLowerCase().includes(q)
+    );
+  });
+
+  const groupedWithdrawals = useMemo(() => {
+    const groups: { [key: string]: { userId: string; userName: string; userPhone: string; currentBalance: number; requests: RefundRequest[] } } = {};
+    
+    refundRequests.forEach(req => {
+      if (!groups[req.userId]) {
+        const user = users.find(u => u.uid === req.userId);
+        groups[req.userId] = {
+          userId: req.userId,
+          userName: user?.displayName || req.userName || 'N/A',
+          userPhone: user?.phoneNumber || req.userPhone || 'N/A',
+          currentBalance: user?.walletBalance || 0,
+          requests: []
+        };
+      }
+      groups[req.userId].requests.push(req);
+    });
+
+    // Sort requests within each group by date desc
+    Object.values(groups).forEach(group => {
+      group.requests.sort((a, b) => {
+        const dateA = a.createdAt?.seconds || 0;
+        const dateB = b.createdAt?.seconds || 0;
+        return dateB - dateA;
+      });
+    });
+
+    return Object.values(groups).filter(group => {
+      if (!searchQuery) return true;
+      const query = searchQuery.toLowerCase();
+      return group.userPhone.toLowerCase().includes(query) || 
+             group.userName.toLowerCase().includes(query) ||
+             group.userId.toLowerCase().includes(query);
+    });
+  }, [refundRequests, users, searchQuery]);
+
+  const pendingTotal = useMemo(() => {
+    return refundRequests
+      .filter(r => r.status === 'Pending')
+      .reduce((acc, r) => acc + r.amount, 0);
+  }, [refundRequests]);
+
   const sidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { type: 'header', label: 'CONTROL CENTER' },
+    { id: 'all-orders', label: 'All Orders', icon: ShoppingCart },
     { id: 'pending-confirm', label: 'Pending Confirm', icon: Clock },
     { id: 'confirmed', label: 'Confirmed', icon: CheckCheck },
     { id: 'pending-purchase', label: 'Pending Purchase', icon: RefreshCcw },
+    { id: 'purchased', label: 'Purchased', icon: PackageCheck },
+    { id: 'shipped', label: 'Shipped', icon: Truck },
     { id: 'bd-warehouse', label: 'BD Warehouse', icon: Building2 },
+    { id: 'delivered', label: 'Delivered', icon: CheckCircle },
+    { id: 'cancelled', label: 'Cancelled', icon: Ban },
     { id: 'refunds-stock-out', label: 'Refunds/Stock Out', icon: XCircle },
     { id: 'withdrawals', label: 'Withdrawals', icon: Edit2 },
     { id: 'sourcing', label: 'Add Product', icon: Plus },
@@ -1824,69 +1982,235 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
               </div>
             </div>
 
-          ) : activeTab === 'withdrawals' || activeTab === 'refunds' || activeTab === 'refund-list' || activeTab === 'already-refunded' ? (
-            <div className="space-y-4">
-              {filteredRefunds.length === 0 ? (
-                <div className="bg-white p-12 rounded-3xl border border-gray-100 text-center space-y-4">
-                  <RefreshCcw className="mx-auto text-gray-300 animate-spin-slow" size={48} />
-                  <p className="text-gray-500 font-bold">No refund requests found</p>
+          ) : activeTab === 'withdrawals' ? (
+            <div className="space-y-8">
+              <div className="flex justify-between items-center">
+                <div className="space-y-1">
+                  <h2 className="text-3xl font-black text-gray-900">Withdrawals</h2>
+                  <p className="text-gray-500 text-sm">Manage your business operations efficiently</p>
                 </div>
-              ) : (
-                filteredRefunds.map(request => (
-                  <div key={request.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-mono text-gray-400">#{request.id.slice(0,8)}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          request.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
-                          request.status === 'Completed' ? 'bg-green-100 text-green-700' :
-                          'bg-red-100 text-red-700'
-                        }`}>
-                          {request.status}
-                        </span>
-                      </div>
-                      <p className="text-lg font-bold text-gray-900">{formatBDT(request.amount)}</p>
-                      <p className="text-xs text-gray-500">User: {request.userEmail || request.userId}</p>
-                      {request.paymentMethod && (
-                        <p className="text-xs font-bold text-primary mt-1">
-                          {request.paymentMethod}: {request.paymentNumber}
-                        </p>
+                <div className="bg-rose-600 text-white px-6 py-3 rounded-xl shadow-lg shadow-rose-100 flex items-center gap-4">
+                  <span className="text-sm font-bold">Pending</span>
+                  <span className="text-xl font-black">{formatBDT(pendingTotal)}</span>
+                </div>
+              </div>
+
+              <div className="relative w-72">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input 
+                  type="text" 
+                  placeholder="Search by phone"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:border-rose-500 transition-all text-sm"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+
+              <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b border-gray-50 bg-gray-50/50">
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Phone</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Client Name</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Current Balance</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Withdrawal History</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {groupedWithdrawals.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-6 py-12 text-center text-gray-500 font-bold">No withdrawal requests found</td>
+                        </tr>
+                      ) : (
+                        groupedWithdrawals.map(group => (
+                          <tr key={group.userId} className="hover:bg-gray-50/30 transition-colors">
+                            <td className="px-6 py-8 text-center font-bold text-gray-900">{group.userPhone}</td>
+                            <td className="px-6 py-8 text-center text-gray-600 font-medium">{group.userName}</td>
+                            <td className="px-6 py-8 text-center font-bold text-gray-900">{formatBDT(group.currentBalance)}</td>
+                            <td className="px-6 py-8">
+                              <div className="border border-gray-100 rounded-xl overflow-hidden">
+                                <table className="w-full border-collapse">
+                                  <thead className="bg-gray-50">
+                                    <tr className="text-[9px] font-black text-gray-500 uppercase tracking-wider">
+                                      <th className="px-4 py-2 border-r border-gray-100 text-center">Withdrawal Amount</th>
+                                      <th className="px-4 py-2 border-r border-gray-100 text-center">Requested Gateway</th>
+                                      <th className="px-4 py-2 border-r border-gray-100 text-center">RequestedTime</th>
+                                      <th className="px-4 py-2 border-r border-gray-100 text-center">Status</th>
+                                      <th className="px-4 py-2 text-center">Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-gray-100">
+                                    {group.requests.map(req => (
+                                      <tr key={req.id} className={req.status === 'Pending' ? 'bg-orange-500 text-white' : 'text-gray-600'}>
+                                        <td className={`px-4 py-2 text-center font-bold border-r ${req.status === 'Pending' ? 'border-orange-400' : 'border-gray-100'}`}>
+                                          {formatBDT(req.amount)}
+                                        </td>
+                                        <td className={`px-4 py-2 text-center border-r ${req.status === 'Pending' ? 'border-orange-400' : 'border-gray-100'}`}>
+                                          <div className="flex items-center justify-center gap-4">
+                                            <div className="flex flex-col items-center">
+                                              <span className={`text-[8px] font-black uppercase ${req.status === 'Pending' ? 'text-orange-100' : 'text-gray-400'}`}>Details</span>
+                                              <span className="text-[10px] font-bold">{req.paymentNumber || req.bankAccountNumber || 'N/A'}</span>
+                                            </div>
+                                            <div className="flex flex-col items-center">
+                                              <span className={`text-[8px] font-black uppercase ${req.status === 'Pending' ? 'text-orange-100' : 'text-gray-400'}`}>Method</span>
+                                              <span className="text-[10px] font-bold">{req.paymentMethod || 'BKash'}</span>
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td className={`px-4 py-2 text-center border-r text-[10px] ${req.status === 'Pending' ? 'border-orange-400' : 'border-gray-100'}`}>
+                                          {req.createdAt?.toDate ? req.createdAt.toDate().toLocaleString() : 'N/A'}
+                                        </td>
+                                        <td className={`px-4 py-2 text-center border-r ${req.status === 'Pending' ? 'border-orange-400' : 'border-gray-100'}`}>
+                                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
+                                            req.status === 'Pending' ? 'bg-white/20 text-white' : 
+                                            req.status === 'Completed' ? 'bg-green-100 text-green-700' : 
+                                            req.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
+                                            'bg-gray-100 text-gray-700'
+                                          }`}>
+                                            {req.status === 'Pending' ? 'HOLD' : req.status}
+                                          </span>
+                                        </td>
+                                        <td className="px-4 py-2 text-center">
+                                          <button 
+                                            onClick={() => setSelectedRefund(req)} 
+                                            className={`p-1.5 rounded-lg transition-all ${req.status === 'Pending' ? 'hover:bg-white/20 text-white' : 'hover:bg-gray-100 text-gray-400'}`}
+                                          >
+                                            <Edit size={14} />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
                       )}
-                    </div>
-                    
-                    {request.status === 'Pending' && (
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => setSelectedRefund(request)}
-                          className="bg-primary text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-orange-600 transition-all"
-                        >
-                          Process Payout
-                        </button>
-                        <button 
-                          onClick={() => cancelRefundRequest(request.id)}
-                          className="bg-gray-100 text-gray-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-200 transition-all"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : activeTab === 'refunds-stock-out' || activeTab === 'refunds' || activeTab === 'refund-list' || activeTab === 'already-refunded' ? (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="relative w-full md:w-72">
+                  <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-gray-400">
+                    <Search size={16} />
                   </div>
-                ))
-              )}
+                  <input 
+                    type="text" 
+                    placeholder="Search by phone or Order Id" 
+                    className="w-full bg-white border border-gray-200 rounded-lg py-2 pl-10 pr-8 outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-sm"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="px-6 py-4 text-[11px] font-black text-gray-500 uppercase tracking-wider text-center">Phone</th>
+                        <th className="px-6 py-4 text-[11px] font-black text-gray-500 uppercase tracking-wider text-center">Client Name</th>
+                        <th className="px-6 py-4 text-[11px] font-black text-gray-500 uppercase tracking-wider text-center">Order ID</th>
+                        <th className="px-6 py-4 text-[11px] font-black text-gray-500 uppercase tracking-wider text-center">Refund Amount</th>
+                        <th className="px-6 py-4 text-[11px] font-black text-gray-500 uppercase tracking-wider text-center">Gateway</th>
+                        <th className="px-6 py-4 text-[11px] font-black text-gray-500 uppercase tracking-wider text-center">Status</th>
+                        <th className="px-6 py-4 text-[11px] font-black text-gray-500 uppercase tracking-wider text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {finalFilteredRefunds.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-6 py-12 text-center text-gray-500 font-bold">
+                            No refund requests found
+                          </td>
+                        </tr>
+                      ) : (
+                        finalFilteredRefunds.map(request => (
+                          <tr key={request.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 text-sm font-bold text-gray-900 text-center">{request.userPhone || 'N/A'}</td>
+                            <td className="px-6 py-4 text-sm text-gray-600 text-center">{request.userName || 'N/A'}</td>
+                            <td className="px-6 py-4 text-xs font-mono text-gray-400 text-center">
+                              {request.orderId || request.id}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-bold text-gray-900 text-center">{request.amount} BDT</td>
+                            <td className="px-6 py-4 text-sm text-gray-600 text-center">
+                              <div className="flex flex-col items-center">
+                                <span className="font-bold">{request.paymentMethod || 'BKash'}</span>
+                                {request.paymentMethod === 'bKash' && (
+                                  <span className="text-[10px] text-primary font-bold">{request.paymentNumber}</span>
+                                )}
+                                {request.paymentMethod === 'Bank' && (
+                                  <span className="text-[10px] text-primary font-bold">{request.bankName}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                request.status === 'Pending' ? 'bg-orange-100 text-orange-700' :
+                                request.status === 'Completed' ? 'bg-green-100 text-green-700' :
+                                'bg-red-100 text-red-700'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${
+                                  request.status === 'Pending' ? 'bg-orange-500' :
+                                  request.status === 'Completed' ? 'bg-green-500' :
+                                  'bg-red-500'
+                                }`} />
+                                {request.status === 'Pending' ? 'HOLD' : request.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <button 
+                                onClick={() => setSelectedRefund(request)}
+                                className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-600 px-3 py-1.5 rounded-md text-xs font-bold hover:bg-gray-200 transition-all border border-gray-200"
+                              >
+                                <Edit size={14} />
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              {/* Pagination Placeholder */}
+              <div className="flex justify-end mt-4">
+                <div className="flex items-center gap-1">
+                  <button className="px-3 py-1 border border-gray-200 rounded text-xs text-gray-500 hover:bg-gray-50">Previous</button>
+                  <button className="px-3 py-1 bg-red-600 text-white rounded text-xs font-bold">1</button>
+                  <button className="px-3 py-1 border border-gray-200 rounded text-xs text-gray-500 hover:bg-gray-50">2</button>
+                  <button className="px-3 py-1 border border-gray-200 rounded text-xs text-gray-500 hover:bg-gray-50">3</button>
+                  <button className="px-3 py-1 border border-gray-200 rounded text-xs text-gray-500 hover:bg-gray-50">4</button>
+                  <button className="px-3 py-1 border border-gray-200 rounded text-xs text-gray-500 hover:bg-gray-50">5</button>
+                  <span className="px-2 text-gray-400">...</span>
+                  <button className="px-3 py-1 border border-gray-200 rounded text-xs text-gray-500 hover:bg-gray-50">664</button>
+                  <button className="px-3 py-1 border border-gray-200 rounded text-xs text-gray-500 hover:bg-gray-50">Next</button>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="space-y-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-3xl font-black text-gray-900 tracking-tight">
-                    {activeTab === 'pending' ? 'Pending Confirm' : 
-                     activeTab === 'confirmed' ? 'Confirmed Orders' :
-                     activeTab === 'purchased' ? 'Purchased Orders' :
-                     activeTab === 'bd-warehouse' ? 'BD Warehouse' :
-                     activeTab === 'shipped' ? 'Shipped Orders' :
-                     activeTab === 'delivered' ? 'Delivered Orders' :
-                     activeTab === 'cancelled' ? 'Cancelled Orders' :
-                     activeTab === 'bank-payments' ? 'Bank Payments' : 'All Orders'}
+                    {sidebarItems.find(i => i.id === activeTab)?.label || 'All Orders'}
                   </h2>
                   <p className="text-sm font-bold text-gray-400 mt-1 uppercase tracking-widest">Manage your business operations efficiently</p>
                 </div>
@@ -1960,10 +2284,13 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                               <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
                                 order.status === 'Order Placed' ? 'bg-blue-100 text-blue-700' :
                                 order.status === 'Confirmed' ? 'bg-green-100 text-green-700' :
-                                order.status === 'Processing' ? 'bg-amber-100 text-amber-700' :
+                                order.status === 'Purchased' ? 'bg-amber-100 text-amber-700' :
                                 order.status === 'Shipped' ? 'bg-purple-100 text-purple-700' :
+                                order.status === 'BD Warehouse' ? 'bg-indigo-100 text-indigo-700' :
                                 order.status === 'Delivered' ? 'bg-emerald-100 text-emerald-700' :
                                 order.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
+                                order.status === 'Stock Out' ? 'bg-rose-100 text-rose-700' :
+                                order.status === 'Refunded' ? 'bg-gray-100 text-gray-700' :
                                 'bg-gray-100 text-gray-700'
                               }`}>
                                 {order.status}
@@ -2171,19 +2498,24 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                           className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider outline-none border-none cursor-pointer ${
                             modalStatus === 'Order Placed' ? 'bg-blue-100 text-blue-700' :
                             modalStatus === 'Confirmed' ? 'bg-green-100 text-green-700' :
-                            modalStatus === 'Processing' ? 'bg-amber-100 text-amber-700' :
+                            modalStatus === 'Purchased' ? 'bg-amber-100 text-amber-700' :
                             modalStatus === 'Shipped' ? 'bg-purple-100 text-purple-700' :
+                            modalStatus === 'BD Warehouse' ? 'bg-indigo-100 text-indigo-700' :
                             modalStatus === 'Delivered' ? 'bg-emerald-100 text-emerald-700' :
                             modalStatus === 'Cancelled' ? 'bg-red-100 text-red-700' :
+                            modalStatus === 'Stock Out' ? 'bg-rose-100 text-rose-700' :
+                            modalStatus === 'Refunded' ? 'bg-gray-100 text-gray-700' :
                             'bg-gray-100 text-gray-700'
                           }`}
                         >
                           <option value="Order Placed">Order Placed</option>
                           <option value="Confirmed">Confirmed</option>
-                          <option value="Processing">Processing</option>
+                          <option value="Purchased">Purchased</option>
                           <option value="Shipped">Shipped</option>
+                          <option value="BD Warehouse">BD Warehouse</option>
                           <option value="Delivered">Delivered</option>
                           <option value="Cancelled">Cancelled</option>
+                          <option value="Stock Out">Stock Out</option>
                           <option value="Refunded">Refunded</option>
                         </select>
                       </div>
@@ -2380,56 +2712,141 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
 
       {/* Refund Payout Modal */}
       <AnimatePresence>
-        {selectedRefund && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl"
-            >
-              <h2 className="text-2xl font-bold mb-2">Process Refund Payout</h2>
-              <p className="text-gray-500 mb-6">Enter payout details for {formatPrice(selectedRefund.amount)}</p>
-              
-              <div className="space-y-4 mb-8">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Gateway Charge (BDT)</label>
-                  <input 
-                    type="number" 
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
-                    value={refundPayoutData.gatewayCharge}
-                    onChange={e => setRefundPayoutData({...refundPayoutData, gatewayCharge: Number(e.target.value)})}
-                  />
+        {selectedRefund && (() => {
+          const relatedOrder = orders.find(o => o.id === selectedRefund.orderId);
+          return (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden"
+              >
+                {/* Header */}
+                <div className="px-8 py-6 flex justify-between items-center border-b border-gray-50">
+                  <h2 className="text-xl font-black text-[#003049] tracking-tight">Send Money</h2>
+                  <button onClick={() => setSelectedRefund(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                    <X size={24} />
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Transaction ID</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. BKASH_TRX_123"
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none"
-                    value={refundPayoutData.transactionId}
-                    onChange={e => setRefundPayoutData({...refundPayoutData, transactionId: e.target.value})}
-                  />
-                </div>
-              </div>
 
-              <div className="flex gap-3">
-                <button 
-                  onClick={processRefundPayout}
-                  className="flex-1 bg-primary text-white py-3 rounded-xl font-bold hover:bg-orange-600 transition-all"
-                >
-                  Submit Payout
-                </button>
-                <button 
-                  onClick={() => setSelectedRefund(null)}
-                  className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
+                <div className="p-8 space-y-6">
+                  {/* Withdrawal Info */}
+                  {!selectedRefund.orderId && (
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-1">
+                      <div className="flex justify-between text-xs font-bold text-blue-800">
+                        <span>Requested Amount:</span>
+                        <span>{formatBDT(selectedRefund.amount)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs font-bold text-blue-800">
+                        <span>Current Wallet Balance:</span>
+                        <span>{formatBDT(users.find(u => u.uid === selectedRefund.userId)?.walletBalance || 0)}</span>
+                      </div>
+                      <div className="pt-1 border-t border-blue-200 flex justify-between text-sm font-black text-blue-900">
+                        <span>Total to Clear Wallet:</span>
+                        <span>{formatBDT(selectedRefund.amount + (users.find(u => u.uid === selectedRefund.userId)?.walletBalance || 0))}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Gateway Selection */}
+                  <div className="space-y-3">
+                    <p className="text-sm font-bold text-[#003049]">Gateway :</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all ${selectedRefund.paymentMethod === 'bKash' ? 'border-rose-500 bg-rose-50/30' : 'border-gray-100'}`}>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedRefund.paymentMethod === 'bKash' ? 'border-rose-500' : 'border-gray-300'}`}>
+                          {selectedRefund.paymentMethod === 'bKash' && <div className="w-2.5 h-2.5 bg-rose-500 rounded-full" />}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-gray-700">bKash</span>
+                          <img src="https://www.logo.wine/a/logo/BKash/BKash-Logo.wine.svg" alt="bKash" className="h-8" referrerPolicy="no-referrer" />
+                        </div>
+                      </div>
+                      <div className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all ${selectedRefund.paymentMethod === 'Bank' ? 'border-rose-500 bg-rose-50/30' : 'border-gray-100'}`}>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedRefund.paymentMethod === 'Bank' ? 'border-rose-500' : 'border-gray-300'}`}>
+                          {selectedRefund.paymentMethod === 'Bank' && <div className="w-2.5 h-2.5 bg-rose-500 rounded-full" />}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-gray-700">Bank</span>
+                          <Building2 className="text-rose-500" size={24} />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Input Grid */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-bold text-[#003049]">Send Amount</label>
+                      <input 
+                        type="number" 
+                        value={refundPayoutData.amount}
+                        onChange={e => setRefundPayoutData({...refundPayoutData, amount: Number(e.target.value)})}
+                        className="w-full border border-rose-500 rounded-lg px-4 py-2.5 outline-none text-sm font-medium"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-bold text-[#003049]">Method</label>
+                      <input 
+                        type="text" 
+                        readOnly
+                        value={selectedRefund.paymentMethod || 'Bkash'}
+                        className="w-full border border-rose-500 rounded-lg px-4 py-2.5 outline-none text-sm font-medium bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-bold text-[#003049]">Gateway Charge</label>
+                      <input 
+                        type="number" 
+                        placeholder="Gateway Charge"
+                        value={refundPayoutData.gatewayCharge}
+                        onChange={e => setRefundPayoutData({...refundPayoutData, gatewayCharge: Number(e.target.value)})}
+                        className="w-full border border-rose-500 rounded-lg px-4 py-2.5 outline-none text-sm font-medium placeholder:text-gray-300"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-bold text-[#003049]">Transaction ID</label>
+                      <input 
+                        type="text" 
+                        placeholder="Transaction ID"
+                        value={refundPayoutData.transactionId}
+                        onChange={e => setRefundPayoutData({...refundPayoutData, transactionId: e.target.value})}
+                        className="w-full border border-rose-500 rounded-lg px-4 py-2.5 outline-none text-sm font-medium placeholder:text-gray-300"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Note Section */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-bold text-[#003049]">Note (Optional)</label>
+                    <textarea 
+                      placeholder="Add a note..."
+                      value={refundPayoutData.note}
+                      onChange={e => setRefundPayoutData({...refundPayoutData, note: e.target.value})}
+                      className="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none text-sm font-medium h-20 resize-none"
+                    />
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button 
+                      onClick={processRefundPayout}
+                      className="bg-rose-600 text-white px-8 py-2 rounded-lg font-bold hover:bg-rose-700 transition-all text-sm"
+                    >
+                      Send
+                    </button>
+                    <button 
+                      onClick={() => cancelRefundRequest(selectedRefund.id)}
+                      className="bg-rose-400 text-white px-8 py-2 rounded-lg font-bold hover:bg-rose-500 transition-all text-sm"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* User Edit Modal */}

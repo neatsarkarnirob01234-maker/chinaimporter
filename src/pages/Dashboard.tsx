@@ -14,7 +14,9 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   X,
-  ShieldCheck
+  ShieldCheck,
+  Smartphone,
+  Building2
 } from "lucide-react";
 import { 
   collection, 
@@ -45,6 +47,14 @@ export default function Dashboard({ userProfile }: DashboardProps) {
   const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawMethod, setWithdrawMethod] = useState<'bkash' | 'bank'>('bkash');
+  const [bkashNumber, setBkashNumber] = useState("");
+  const [bankDetails, setBankDetails] = useState({
+    accountName: "",
+    accountNumber: "",
+    bankName: "",
+    branchName: ""
+  });
 
   const fixDriveUrl = (url: string) => {
     if (!url) return url;
@@ -112,13 +122,27 @@ export default function Dashboard({ userProfile }: DashboardProps) {
 
     try {
       // Create refund request
-      const refundRef = await addDoc(collection(db, 'refundRequests'), {
+      const refundData: any = {
         userId: userProfile.uid,
         userEmail: userProfile.email,
+        userName: userProfile.displayName,
+        userPhone: userProfile.phoneNumber || "",
         amount,
         status: 'Pending',
+        paymentMethod: withdrawMethod === 'bkash' ? 'bKash' : 'Bank',
         createdAt: serverTimestamp()
-      });
+      };
+
+      if (withdrawMethod === 'bkash') {
+        refundData.paymentNumber = bkashNumber;
+      } else {
+        refundData.bankAccountName = bankDetails.accountName;
+        refundData.bankAccountNumber = bankDetails.accountNumber;
+        refundData.bankName = bankDetails.bankName;
+        refundData.bankBranch = bankDetails.branchName;
+      }
+
+      const refundRef = await addDoc(collection(db, 'refundRequests'), refundData);
 
       // Deduct from wallet balance
       const userRef = doc(db, 'users', userProfile.uid);
@@ -129,6 +153,8 @@ export default function Dashboard({ userProfile }: DashboardProps) {
 
       setIsWithdrawModalOpen(false);
       setWithdrawAmount("");
+      setBkashNumber("");
+      setBankDetails({ accountName: "", accountNumber: "", bankName: "", branchName: "" });
       toast.success("Withdrawal request submitted");
     } catch (error) {
       toast.error("Failed to submit request");
@@ -396,21 +422,120 @@ export default function Dashboard({ userProfile }: DashboardProps) {
               <h2 className="text-2xl font-bold mb-2">Withdraw Money</h2>
               <p className="text-gray-500 mb-6 text-sm">Request to withdraw money from your wallet.</p>
               
-              <div className="space-y-4 mb-8">
+              <div className="space-y-6 mb-8 overflow-y-auto max-h-[60vh] pr-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount (BDT)</label>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Withdrawal Method</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button 
+                      onClick={() => setWithdrawMethod('bkash')}
+                      className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all ${
+                        withdrawMethod === 'bkash' ? 'border-primary bg-orange-50 text-primary' : 'border-gray-100 hover:border-gray-200 text-gray-500'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${withdrawMethod === 'bkash' ? 'bg-primary text-white' : 'bg-gray-100'}`}>
+                        <Smartphone size={20} />
+                      </div>
+                      <span className="text-xs font-bold">bKash</span>
+                    </button>
+                    <button 
+                      onClick={() => setWithdrawMethod('bank')}
+                      className={`flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all ${
+                        withdrawMethod === 'bank' ? 'border-primary bg-orange-50 text-primary' : 'border-gray-100 hover:border-gray-200 text-gray-500'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${withdrawMethod === 'bank' ? 'bg-primary text-white' : 'bg-gray-100'}`}>
+                        <Building2 size={20} />
+                      </div>
+                      <span className="text-xs font-bold">Bank</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Amount (BDT)</label>
                   <div className="relative">
                     <input 
                       type="number" 
                       placeholder="0.00"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold pr-24"
                       value={withdrawAmount}
                       onChange={e => setWithdrawAmount(e.target.value)}
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">৳</span>
+                    <button 
+                      onClick={() => setWithdrawAmount(userProfile?.walletBalance.toString() || "0")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-primary/10 text-primary px-3 py-1.5 rounded-lg text-[10px] font-black hover:bg-primary/20 transition-all uppercase"
+                    >
+                      Withdraw All
+                    </button>
                   </div>
-                  <p className="mt-2 text-[10px] text-gray-400">Max withdrawable: {formatBDT(userProfile.walletBalance)}</p>
+                  <p className="mt-2 text-[10px] text-gray-400">Max withdrawable: {formatBDT(userProfile?.walletBalance || 0)}</p>
                 </div>
+
+                {withdrawMethod === 'bkash' ? (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="space-y-2"
+                  >
+                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">bKash Number</label>
+                    <input 
+                      type="text" 
+                      placeholder="01XXX-XXXXXX"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold"
+                      value={bkashNumber}
+                      onChange={e => setBkashNumber(e.target.value)}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="space-y-4"
+                  >
+                    <div className="space-y-2">
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Account Holder Name</label>
+                      <input 
+                        type="text" 
+                        placeholder="Full Name"
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold"
+                        value={bankDetails.accountName}
+                        onChange={e => setBankDetails({...bankDetails, accountName: e.target.value})}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Account Number</label>
+                      <input 
+                        type="text" 
+                        placeholder="Account Number"
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold"
+                        value={bankDetails.accountNumber}
+                        onChange={e => setBankDetails({...bankDetails, accountNumber: e.target.value})}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Bank Name</label>
+                        <input 
+                          type="text" 
+                          placeholder="Bank Name"
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold"
+                          value={bankDetails.bankName}
+                          onChange={e => setBankDetails({...bankDetails, bankName: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Branch Name</label>
+                        <input 
+                          type="text" 
+                          placeholder="Branch Name"
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold"
+                          value={bankDetails.branchName}
+                          onChange={e => setBankDetails({...bankDetails, branchName: e.target.value})}
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
               </div>
 
               <button 

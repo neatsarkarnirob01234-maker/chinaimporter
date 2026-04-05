@@ -6,7 +6,8 @@ import {
   ShoppingBag, 
   Ship, 
   Truck, 
-  CheckCircle 
+  CheckCircle,
+  Building2
 } from 'lucide-react';
 import { OrderStatus } from '../types';
 
@@ -18,7 +19,8 @@ const steps: { status: OrderStatus; label: string; icon: any }[] = [
   { status: 'Order Placed', label: 'Order Placed', icon: Package },
   { status: 'Confirmed', label: 'Confirmed', icon: CheckCircle2 },
   { status: 'Purchased', label: 'Purchased', icon: ShoppingBag },
-  { status: 'BD Warehouse', label: 'BD Warehouse', icon: Ship },
+  { status: 'Shipped', label: 'Shipped', icon: Ship },
+  { status: 'BD Warehouse', label: 'BD Warehouse', icon: Building2 },
   { status: 'Delivered', label: 'Delivered', icon: Truck },
 ];
 
