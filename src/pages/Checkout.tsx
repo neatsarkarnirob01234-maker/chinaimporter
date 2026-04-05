@@ -18,7 +18,7 @@ interface CheckoutProps {
 export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps) {
   const navigate = useNavigate();
   const [paymentPercentage, setPaymentPercentage] = useState<80 | 100>(80);
-  const [paymentMethod, setPaymentMethod] = useState<'bKash' | 'Nagad' | 'Bank'>('bKash');
+  const [paymentMethod, setPaymentMethod] = useState<'bKash' | 'Nagad' | 'Bank' | 'Wallet'>('bKash');
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionId, setTransactionId] = useState("");
@@ -92,13 +92,20 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
     e.preventDefault();
     if (!userProfile) return;
     
-    if (!transactionId) {
-      toast.error("Please enter Transaction ID");
-      return;
-    }
-    if (!paymentProof) {
-      toast.error("Please upload payment screenshot");
-      return;
+    if (paymentMethod !== 'Wallet') {
+      if (!transactionId) {
+        toast.error("Please enter Transaction ID");
+        return;
+      }
+      if (!paymentProof) {
+        toast.error("Please upload payment screenshot");
+        return;
+      }
+    } else {
+      if (userProfile.walletBalance < payNowAmount) {
+        toast.error("Insufficient wallet balance");
+        return;
+      }
     }
     
     setIsSubmitting(true);
@@ -118,6 +125,20 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
           transaction.update(counterRef, { orderCount: nextOrderNumber });
         }
 
+        // Deduct from wallet if payment method is Wallet
+        if (paymentMethod === 'Wallet') {
+          const userRef = doc(db, 'users', userProfile.uid);
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists()) throw new Error("User not found");
+          const currentBalance = userDoc.data().walletBalance || 0;
+          if (currentBalance < payNowAmount) throw new Error("Insufficient wallet balance");
+          
+          transaction.update(userRef, {
+            walletBalance: currentBalance - payNowAmount,
+            updatedAt: serverTimestamp()
+          });
+        }
+
         const orderData = {
           userId: userProfile.uid,
           userEmail: userProfile.email,
@@ -125,9 +146,10 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
           totalAmount: totalBDT,
           paidAmount: payNowAmount,
           paymentPercentage,
-          status: 'Order Placed',
-          transactionId,
-          paymentProof: paymentProof,
+          status: paymentMethod === 'Wallet' ? 'Processing' : 'Order Placed',
+          paymentMethod,
+          transactionId: paymentMethod === 'Wallet' ? `WALLET-${Date.now()}` : transactionId,
+          paymentProof: paymentMethod === 'Wallet' ? 'WALLET_PAYMENT' : paymentProof,
           shippingAddress: address,
           orderNumber: nextOrderNumber,
           createdAt: serverTimestamp(),
@@ -147,10 +169,10 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
         spread: 70,
         origin: { y: 0.6 }
       });
-      toast.success("Payment submitted successfully!");
-    } catch (error) {
+      toast.success(paymentMethod === 'Wallet' ? "Order placed successfully!" : "Payment submitted successfully!");
+    } catch (error: any) {
       console.error("Error creating order:", error);
-      toast.error("There was a problem submitting your order");
+      toast.error(error.message || "There was a problem submitting your order");
       setIsSubmitting(false);
       handleFirestoreError(error, OperationType.WRITE, 'orders');
     }
@@ -334,8 +356,8 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
 
               <div className="bg-blue-50 p-6 rounded-2xl space-y-4">
                 <p className="text-sm font-bold text-blue-900">Make payment through any of the following methods:</p>
-                <div className="grid grid-cols-3 gap-4">
-                  {['bKash', 'Nagad', 'Bank'].map((m) => (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {['bKash', 'Nagad', 'Bank', 'Wallet'].map((m) => (
                     <button 
                       key={m}
                       onClick={() => setPaymentMethod(m as any)}
@@ -347,83 +369,100 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
                     </button>
                   ))}
                 </div>
-                <div className="bg-white p-4 rounded-xl border border-blue-100">
-                  <p className="text-xs text-gray-500 mb-1">
-                    {paymentMethod === 'Bank' ? 'Bank Details:' : `${paymentMethod} Number (Personal):`}
-                  </p>
-                  <p className="text-lg font-bold text-secondary whitespace-pre-line">
-                    {(paymentMethod === 'bKash' ? paymentSettings.bkash : 
-                      paymentMethod === 'Nagad' ? paymentSettings.nagad : 
-                      paymentSettings.bank) || 'Not set by admin'}
-                  </p>
-                </div>
+                {paymentMethod === 'Wallet' ? (
+                  <div className="bg-white p-4 rounded-xl border border-blue-100 flex justify-between items-center">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Your Wallet Balance:</p>
+                      <p className="text-lg font-bold text-secondary">{formatBDT(userProfile?.walletBalance || 0)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500 mb-1">Amount to Pay:</p>
+                      <p className="text-lg font-bold text-primary">{formatBDT(payNowAmount)}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white p-4 rounded-xl border border-blue-100">
+                    <p className="text-xs text-gray-500 mb-1">
+                      {paymentMethod === 'Bank' ? 'Bank Details:' : `${paymentMethod} Number (Personal):`}
+                    </p>
+                    <p className="text-lg font-bold text-secondary whitespace-pre-line">
+                      {(paymentMethod === 'bKash' ? paymentSettings.bkash : 
+                        paymentMethod === 'Nagad' ? paymentSettings.nagad : 
+                        paymentSettings.bank) || 'Not set by admin'}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <form onSubmit={handleSubmitPayment} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-gray-600">Transaction ID</label>
-                  <input 
-                    required 
-                    type="text" 
-                    placeholder="e.g. 8N7X6W5V" 
-                    className="w-full bg-gray-50 h-12 px-4 rounded-xl outline-none focus:ring-2 ring-primary" 
-                    value={transactionId}
-                    onChange={e => setTransactionId(e.target.value)}
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-gray-600">Upload Payment Screenshot</label>
-                  <div className="relative">
-                    <input 
-                      type="file" 
-                      accept="image/*"
-                      className="hidden" 
-                      id="payment-upload"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          if (file.size > 2 * 1024 * 1024) {
-                            toast.error("File size must be less than 2MB");
-                            return;
-                          }
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setPaymentProof(reader.result as string);
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                    />
-                    <label 
-                      htmlFor="payment-upload"
-                      className={`border-2 border-dashed rounded-2xl p-8 text-center space-y-2 transition-colors cursor-pointer block ${
-                        paymentProof ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-primary'
-                      }`}
-                    >
-                      {paymentProof ? (
-                        <div className="space-y-2">
-                          <CheckCircle2 className="mx-auto text-green-500" size={32} />
-                          <p className="text-sm text-green-700 font-bold">Screenshot Uploaded</p>
-                          <img src={paymentProof} alt="Preview" className="w-20 h-20 object-cover mx-auto rounded-lg border border-green-200" />
-                          <p className="text-[10px] text-green-600">Click to change</p>
-                        </div>
-                      ) : (
-                        <>
-                          <Upload className="mx-auto text-gray-400" size={32} />
-                          <p className="text-sm text-gray-500">Click to upload screenshot</p>
-                          <p className="text-[10px] text-gray-400">JPG, PNG (Max 2MB)</p>
-                        </>
-                      )}
-                    </label>
-                  </div>
-                </div>
+                {paymentMethod !== 'Wallet' && (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-gray-600">Transaction ID</label>
+                      <input 
+                        required 
+                        type="text" 
+                        placeholder="e.g. 8N7X6W5V" 
+                        className="w-full bg-gray-50 h-12 px-4 rounded-xl outline-none focus:ring-2 ring-primary" 
+                        value={transactionId}
+                        onChange={e => setTransactionId(e.target.value)}
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-gray-600">Upload Payment Screenshot</label>
+                      <div className="relative">
+                        <input 
+                          type="file" 
+                          accept="image/*"
+                          className="hidden" 
+                          id="payment-upload"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              if (file.size > 2 * 1024 * 1024) {
+                                toast.error("File size must be less than 2MB");
+                                return;
+                              }
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                setPaymentProof(reader.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                        <label 
+                          htmlFor="payment-upload"
+                          className={`border-2 border-dashed rounded-2xl p-8 text-center space-y-2 transition-colors cursor-pointer block ${
+                            paymentProof ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-primary'
+                          }`}
+                        >
+                          {paymentProof ? (
+                            <div className="space-y-2">
+                              <CheckCircle2 className="mx-auto text-green-500" size={32} />
+                              <p className="text-sm text-green-700 font-bold">Screenshot Uploaded</p>
+                              <img src={paymentProof} alt="Preview" className="w-20 h-20 object-cover mx-auto rounded-lg border border-green-200" />
+                              <p className="text-[10px] text-green-600">Click to change</p>
+                            </div>
+                          ) : (
+                            <>
+                              <Upload className="mx-auto text-gray-400" size={32} />
+                              <p className="text-sm text-gray-500">Click to upload screenshot</p>
+                              <p className="text-[10px] text-gray-400">JPG, PNG (Max 2MB)</p>
+                            </>
+                          )}
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <button 
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || (paymentMethod === 'Wallet' && (userProfile?.walletBalance || 0) < payNowAmount)}
                   className="w-full bg-primary text-white h-14 rounded-2xl font-bold shadow-xl shadow-orange-200 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  {isSubmitting ? "Processing..." : "Submit Payment"}
+                  {isSubmitting ? "Processing..." : (paymentMethod === 'Wallet' && (userProfile?.walletBalance || 0) < payNowAmount ? "Insufficient Balance" : "Submit Payment")}
                 </button>
               </form>
             </section>

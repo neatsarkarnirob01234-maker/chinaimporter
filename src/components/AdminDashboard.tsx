@@ -551,6 +551,9 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
 
       // 2. Update user wallet balance
       const userRef = doc(db, 'users', selectedRefund.userId);
+      const user = users.find(u => u.uid === selectedRefund.userId);
+      const currentWalletBalance = user?.walletBalance || 0;
+
       if (!isWithdrawal) {
         // Refund logic: add to wallet
         batch.update(userRef, {
@@ -558,9 +561,13 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
           updatedAt: serverTimestamp()
         });
       } else {
-        // Withdrawal logic: set wallet to 0 as requested by admin
+        // Withdrawal logic: sum send amount + charge, return remaining to wallet
+        const totalToSettle = selectedRefund.amount + currentWalletBalance;
+        const totalPaidOut = Number(refundPayoutData.amount) + Number(refundPayoutData.gatewayCharge || 0);
+        const remaining = Math.max(0, totalToSettle - totalPaidOut);
+
         batch.update(userRef, {
-          walletBalance: 0,
+          walletBalance: remaining,
           updatedAt: serverTimestamp()
         });
       }
@@ -2818,7 +2825,14 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
 
                   {/* Note Section */}
                   <div className="space-y-1.5">
-                    <label className="text-sm font-bold text-[#003049]">Note (Optional)</label>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-sm font-bold text-[#003049]">Note (Optional)</label>
+                      {!selectedRefund.orderId && (
+                        <div className="text-xs font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-lg border border-rose-100">
+                          Total Payout: {formatBDT(Number(refundPayoutData.amount) + Number(refundPayoutData.gatewayCharge || 0))}
+                        </div>
+                      )}
+                    </div>
                     <textarea 
                       placeholder="Add a note..."
                       value={refundPayoutData.note}
