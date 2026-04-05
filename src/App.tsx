@@ -105,20 +105,24 @@ export default function App() {
   return (
     <Router>
       <Toaster position="top-center" richColors />
-      <MainLayout userProfile={userProfile} cartCount={cart.reduce((acc, i) => acc + i.quantity, 0)}>
-        <Routes>
-          <Route path="/" element={<Home userProfile={userProfile} />} />
-          <Route path="/search" element={<SearchResults />} />
-          <Route path="/category/:categoryName" element={<Category />} />
-          <Route path="/wishlist" element={<Wishlist />} />
-          <Route path="/product/:id" element={<ProductDetail addToCart={addToCart} />} />
-          <Route path="/cart" element={<Cart cart={cart} updateQuantity={updateQuantity} removeFromCart={removeFromCart} />} />
-          <Route path="/checkout" element={<Checkout userProfile={userProfile} cart={cart} clearCart={clearCart} />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/dashboard" element={<Dashboard userProfile={userProfile} />} />
-          <Route path="/admin" element={<Admin userProfile={userProfile} />} />
-        </Routes>
-      </MainLayout>
+      <Routes>
+        <Route path="/admin" element={<Admin userProfile={userProfile} />} />
+        <Route path="*" element={
+          <MainLayout userProfile={userProfile} cartCount={cart.reduce((acc, i) => acc + i.quantity, 0)}>
+            <Routes>
+              <Route path="/" element={<Home userProfile={userProfile} />} />
+              <Route path="/search" element={<SearchResults />} />
+              <Route path="/category/:categoryName" element={<Category />} />
+              <Route path="/wishlist" element={<Wishlist />} />
+              <Route path="/product/:id" element={<ProductDetail addToCart={addToCart} />} />
+              <Route path="/cart" element={<Cart cart={cart} updateQuantity={updateQuantity} removeFromCart={removeFromCart} />} />
+              <Route path="/checkout" element={<Checkout userProfile={userProfile} cart={cart} clearCart={clearCart} />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/dashboard" element={<Dashboard userProfile={userProfile} />} />
+            </Routes>
+          </MainLayout>
+        } />
+      </Routes>
     </Router>
   );
 }

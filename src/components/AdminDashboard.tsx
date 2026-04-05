@@ -941,11 +941,11 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     <>
       <div className="min-h-screen bg-gray-50 flex">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 hidden lg:flex flex-col sticky top-0 h-screen">
-        <div className="p-6 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-gray-900">Admin Panel</h2>
+      <aside className="w-72 bg-white border-r border-gray-200 hidden lg:flex flex-col sticky top-0 h-screen">
+        <div className="p-8 border-b border-gray-100">
+          <h2 className="text-2xl font-black text-gray-900 tracking-tight">Admin<span className="text-primary">Pro</span></h2>
         </div>
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-6 space-y-1.5">
           {sidebarItems.map((item, idx) => {
             if (item.type === 'header') {
               return (
@@ -959,13 +959,13 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id as AdminTab)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
                   activeTab === item.id 
-                    ? 'bg-primary text-white shadow-lg shadow-orange-200' 
-                    : 'text-gray-500 hover:bg-gray-50'
+                    ? 'bg-primary text-white shadow-xl shadow-orange-200/50 scale-[1.02]' 
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
                 }`}
               >
-                <Icon size={18} />
+                <Icon size={20} />
                 {item.label}
               </button>
             );
@@ -1006,20 +1006,20 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
           </select>
         </header>
 
-        <main className="p-4 lg:p-8 overflow-y-auto">
-          <div className="max-w-6xl mx-auto">
-            <div className="flex items-center justify-between mb-8">
+        <main className="p-6 lg:p-10 overflow-y-auto">
+          <div className="w-full">
+            <div className="flex items-center justify-between mb-10">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">
+                <h1 className="text-4xl font-black text-gray-900 tracking-tight mb-2">
                   {sidebarItems.find(i => i.id === activeTab)?.label || 'Admin Control Center'}
                 </h1>
-                <p className="text-sm text-gray-500">Manage your business operations efficiently</p>
+                <p className="text-base text-gray-500 font-medium tracking-wide">Manage your business operations efficiently</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-6">
               {activeTab === 'dashboard' ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-6">
                   <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                     <p className="text-[10px] font-bold text-gray-400 uppercase mb-1 tracking-wider">Total Orders</p>
                     <p className="text-2xl font-bold text-gray-900">{orders.length}</p>
@@ -1913,25 +1913,25 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
               </div>
 
               {/* Orders Table */}
-              <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-xl shadow-gray-200/50 overflow-hidden">
+              <div className="bg-white rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/50 overflow-hidden">
                 <div className="overflow-x-auto custom-scrollbar">
-                  <table className="w-full text-left border-collapse min-w-[1400px]">
+                  <table className="w-full text-left border-collapse min-w-[1200px]">
                     <thead>
                       <tr className="bg-gray-50/50 border-b border-gray-100">
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Child ID</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">1688 Order ID</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Product Status</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Order time</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Product Image</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-100">Product Name</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-100">Name</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-100">Phone</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Gateway</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">CS Response</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Purchase Note</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Last Update</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Update Status</th>
-                        <th className="px-6 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Action</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Child ID</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">1688 Order ID</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Product Status</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Order time</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Product Image</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-100">Product Name</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-100">Name</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-100">Phone</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Gateway</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">CS Response</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Purchase Note</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Last Update</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center border-r border-gray-100">Update Status</th>
+                        <th className="px-3 py-3 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
@@ -1947,17 +1947,17 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                       ) : (
                         filteredOrders.map((order) => (
                           <tr key={order.id} className="hover:bg-gray-50/30 transition-colors group">
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
-                              <div className="flex flex-col items-center gap-1">
-                                <span className="text-sm font-black text-primary">#{order.orderNumber || order.id.slice(0, 8)}</span>
-                                <span className="text-[10px] font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded uppercase">{order.id.slice(0, 10)}</span>
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="text-xs font-black text-primary">#{order.orderNumber || order.id.slice(0, 8)}</span>
+                                <span className="text-[9px] font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase">{order.id.slice(0, 10)}</span>
                               </div>
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
-                              <span className="text-sm font-bold text-gray-600">{order.purchaseOrderId || 'N/A'}</span>
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
+                              <span className="text-xs font-bold text-gray-600">{order.purchaseOrderId || 'N/A'}</span>
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
-                              <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider ${
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
+                              <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
                                 order.status === 'Order Placed' ? 'bg-blue-100 text-blue-700' :
                                 order.status === 'Confirmed' ? 'bg-green-100 text-green-700' :
                                 order.status === 'Processing' ? 'bg-amber-100 text-amber-700' :
@@ -1969,13 +1969,13 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                 {order.status}
                               </span>
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
-                              <span className="text-sm font-bold text-gray-600">
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
+                              <span className="text-xs font-bold text-gray-600">
                                 {order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString() : 'N/A'}
                               </span>
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
-                              <div className="w-16 h-16 mx-auto bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm p-1">
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
+                              <div className="w-12 h-12 mx-auto bg-white rounded-lg border border-gray-100 overflow-hidden shadow-sm p-0.5">
                                 <img 
                                   src={fixDriveUrl(order.items[0]?.image)} 
                                   alt="" 
@@ -1984,67 +1984,67 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                 />
                               </div>
                             </td>
-                            <td className="px-6 py-6 border-r border-gray-100 max-w-[200px]">
-                              <p className="text-sm font-bold text-gray-900 truncate">{order.items[0]?.title}</p>
+                            <td className="px-3 py-2 border-r border-gray-100 max-w-[150px]">
+                              <p className="text-xs font-bold text-gray-900 truncate">{order.items[0]?.title}</p>
                               {order.items.length > 1 && (
-                                <p className="text-[10px] font-black text-primary uppercase mt-1">+{order.items.length - 1} more items</p>
+                                <p className="text-[9px] font-black text-primary uppercase mt-0.5">+{order.items.length - 1} more items</p>
                               )}
                             </td>
-                            <td className="px-6 py-6 border-r border-gray-100">
-                              <span className="text-sm font-bold text-gray-900">{order.shippingAddress?.name || 'N/A'}</span>
+                            <td className="px-3 py-2 border-r border-gray-100">
+                              <span className="text-xs font-bold text-gray-900">{order.shippingAddress?.name || 'N/A'}</span>
                             </td>
-                            <td className="px-6 py-6 border-r border-gray-100">
-                              <span className="text-sm font-bold text-gray-600">{order.shippingAddress?.phone || 'N/A'}</span>
+                            <td className="px-3 py-2 border-r border-gray-100">
+                              <span className="text-xs font-bold text-gray-600">{order.shippingAddress?.phone || 'N/A'}</span>
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
-                              <div className="flex flex-col items-center gap-1">
-                                <span className="text-sm font-bold text-gray-900">{order.paymentType || 'Manual'}</span>
-                                <CheckCircle size={14} className="text-emerald-500" />
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="text-xs font-bold text-gray-900">{order.paymentType || 'Manual'}</span>
+                                <CheckCircle size={12} className="text-emerald-500" />
                               </div>
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
                               {order.csResponse ? (
                                 <button 
                                   onClick={() => setSelectedOrder(order)}
-                                  className="bg-gray-900 text-white text-[10px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-black transition-all"
+                                  className="bg-gray-900 text-white text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest hover:bg-black transition-all"
                                 >
                                   See Note
                                 </button>
                               ) : (
-                                <span className="text-[10px] font-bold text-gray-300 uppercase">No Response</span>
+                                <span className="text-[9px] font-bold text-gray-300 uppercase">No Response</span>
                               )}
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
                               {order.purchaseNote ? (
                                 <button 
                                   onClick={() => setSelectedOrder(order)}
-                                  className="bg-gray-900 text-white text-[10px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-black transition-all"
+                                  className="bg-gray-900 text-white text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest hover:bg-black transition-all"
                                 >
                                   See Note
                                 </button>
                               ) : (
-                                <span className="text-[10px] font-bold text-gray-300 uppercase">No Note</span>
+                                <span className="text-[9px] font-bold text-gray-300 uppercase">No Note</span>
                               )}
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
-                              <span className="text-sm font-bold text-gray-600">
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
+                              <span className="text-xs font-bold text-gray-600">
                                 {order.updatedAt?.toDate ? order.updatedAt.toDate().toLocaleDateString() : 'N/A'}
                               </span>
                             </td>
-                            <td className="px-6 py-6 text-center border-r border-gray-100">
+                            <td className="px-3 py-2 text-center border-r border-gray-100">
                               <button 
                                 onClick={() => setSelectedOrder(order)}
-                                className="bg-gray-900 text-white text-[10px] font-black px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-gray-200"
+                                className="bg-gray-900 text-white text-[9px] font-black px-3 py-1.5 rounded-lg uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-gray-200"
                               >
                                 Update Status
                               </button>
                             </td>
-                            <td className="px-6 py-6 text-center">
+                            <td className="px-3 py-2 text-center">
                               <button 
                                 onClick={() => setSelectedOrder(order)}
-                                className="p-3 bg-gray-900 text-white rounded-xl hover:bg-black transition-all shadow-lg shadow-gray-200 inline-flex items-center justify-center"
+                                className="p-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-all shadow-lg shadow-gray-200 inline-flex items-center justify-center"
                               >
-                                <Eye size={18} />
+                                <Eye size={16} />
                               </button>
                             </td>
                           </tr>
