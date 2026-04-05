@@ -2051,7 +2051,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                     {group.requests.map(req => (
                                       <tr key={req.id} className={req.status === 'Pending' ? 'bg-orange-500 text-white' : 'text-gray-600'}>
                                         <td className={`px-4 py-2 text-center font-bold border-r ${req.status === 'Pending' ? 'border-orange-400' : 'border-gray-100'}`}>
-                                          {formatBDT(req.amount)}
+                                          {formatBDT(req.amount + (req.gatewayCharge || 0))}
                                         </td>
                                         <td className={`px-4 py-2 text-center border-r ${req.status === 'Pending' ? 'border-orange-400' : 'border-gray-100'}`}>
                                           <div className="flex items-center justify-center gap-4">
