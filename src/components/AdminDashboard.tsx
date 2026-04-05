@@ -31,7 +31,8 @@ import {
   LayoutDashboard,
   Settings,
   HardDrive,
-  Download
+  Download,
+  Phone
 } from 'lucide-react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
@@ -2066,106 +2067,198 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl my-8"
+              className="bg-white rounded-lg max-w-6xl w-full shadow-2xl my-8 overflow-hidden"
             >
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold">Order Details</h2>
-                  <p className="text-sm text-primary font-bold">ID: #{selectedOrder.orderNumber || selectedOrder.id.slice(0, 8)}</p>
-                  <p className="text-[10px] text-gray-400 font-mono">Internal ID: {selectedOrder.id}</p>
+              {/* Modal Header */}
+              <div className="flex justify-between items-center p-4 border-b">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-xl font-bold text-gray-900">Order Details</h2>
+                  <span className="text-sm font-bold text-orange-600">ID: #{selectedOrder.orderNumber || selectedOrder.id.slice(0, 8)}</span>
+                  <span className="text-[10px] text-gray-400 font-mono">Internal ID: {selectedOrder.id}</span>
                 </div>
                 <button 
                   onClick={() => setSelectedOrder(null)}
-                  className="p-2 hover:bg-gray-100 rounded-full transition-all"
+                  className="p-1 hover:bg-gray-100 rounded-full transition-all"
                 >
                   <XCircle size={24} />
                 </button>
               </div>
 
-              <div className="space-y-6">
-                {/* Shipping Info */}
-                <div className="bg-gray-50 p-4 rounded-2xl">
-                  <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
-                    <Users size={18} /> Shipping Information
-                  </h3>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-400 uppercase text-[10px] font-bold">Name</p>
-                      <p className="font-bold">{selectedOrder.shippingAddress?.name || 'N/A'}</p>
+              <div className="p-6 space-y-6">
+                {/* Top Info Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Client Details */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-gray-50 px-3 py-2 border-b">
+                      <h3 className="text-sm font-bold text-blue-900">Client Details</h3>
                     </div>
-                    <div>
-                      <p className="text-gray-400 uppercase text-[10px] font-bold">Phone</p>
-                      <p className="font-bold">{selectedOrder.shippingAddress?.phone || 'N/A'}</p>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-gray-400 uppercase text-[10px] font-bold">Email</p>
-                      <p className="font-bold">{selectedOrder.shippingAddress?.email || selectedOrder.userEmail}</p>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-gray-400 uppercase text-[10px] font-bold">Address</p>
-                      <p className="font-bold">{selectedOrder.shippingAddress?.detail || 'N/A'}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Items */}
-                <div>
-                  <h3 className="font-bold text-gray-900 mb-3">Ordered Items</h3>
-                  <div className="space-y-3">
-                    {selectedOrder.items.map((item, idx) => (
-                      <div key={idx} className="flex gap-4 items-center bg-white border border-gray-100 p-3 rounded-xl">
-                        <img 
-                          src={fixDriveUrl(item.image)} 
-                          alt="" 
-                          className="w-12 h-12 rounded-lg object-cover" 
-                          referrerPolicy="no-referrer" 
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-sm truncate">{item.title}</p>
-                          <p className="text-xs text-gray-500">¥{item.price_rmb} x {item.quantity}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-primary">{formatPrice(item.price_rmb * item.quantity)}</p>
-                        </div>
+                    <div className="p-3 space-y-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Name :</span>
+                        <span className="text-right">{selectedOrder.shippingAddress?.name || 'N/A'}</span>
                       </div>
-                    ))}
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Phone :</span>
+                        <span className="text-right">{selectedOrder.shippingAddress?.phone || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Emergency Phone :</span>
+                        <span className="text-right">N/A</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Email :</span>
+                        <span className="text-right truncate max-w-[150px]">{selectedOrder.shippingAddress?.email || selectedOrder.userEmail}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Shipping Address */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-gray-50 px-3 py-2 border-b">
+                      <h3 className="text-sm font-bold text-blue-900">Shipping Address</h3>
+                    </div>
+                    <div className="p-3 space-y-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Address :</span>
+                        <span className="text-right">{selectedOrder.shippingAddress?.detail || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">District :</span>
+                        <span className="text-right">Dhaka</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">City/Upazila :</span>
+                        <span className="text-right">Dhaka</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Delivery Method :</span>
+                        <span className="text-right">Steadfast</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Grand Total */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-gray-50 px-3 py-2 border-b">
+                      <h3 className="text-sm font-bold text-blue-900">Grand Total</h3>
+                    </div>
+                    <div className="p-3 space-y-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Total Product Price :</span>
+                        <span className="text-right">{formatBDT(selectedOrder.totalAmount)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Payment Status :</span>
+                        <span className="text-right">{selectedOrder.status}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Coupon :</span>
+                        <span className="text-right">N/A</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 font-bold">Partial Paid :</span>
+                        <span className="text-right">{formatBDT(selectedOrder.paidAmount)}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Payment Summary */}
-                <div className="border-t pt-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Total Amount</span>
-                    <span className="font-bold">{formatPrice(selectedOrder.totalAmount)}</span>
+                {/* Status Bars */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-0 overflow-hidden rounded-lg">
+                  <div className="bg-emerald-600 p-3 flex justify-between items-center">
+                    <span className="text-white text-xs font-bold uppercase tracking-wider">CS RESPONSE : Order Confirm</span>
+                    <button className="bg-emerald-700 text-white p-1.5 rounded-lg hover:bg-emerald-800 transition-all">
+                      <RefreshCcw size={14} />
+                    </button>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Paid Amount ({selectedOrder.paymentType})</span>
-                    <span className="font-bold text-green-600">{formatPrice(selectedOrder.paidAmount)}</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold pt-2 border-t">
-                    <span>Remaining Due</span>
-                    <span className="text-red-500">{formatPrice(selectedOrder.totalAmount - selectedOrder.paidAmount)}</span>
+                  <div className="bg-rose-600 p-3 flex justify-between items-center">
+                    <div className="text-white">
+                      <p className="text-[10px] font-bold uppercase opacity-80">Key Accounts Manager</p>
+                      <p className="text-xs font-bold">Shahriar Kazim</p>
+                      <p className="text-[10px]">01896300505</p>
+                    </div>
+                    <div className="bg-rose-900/30 p-2 rounded-full">
+                      <Phone size={16} className="text-white" />
+                    </div>
                   </div>
                 </div>
 
-                {/* Payment Proof */}
+                {/* Product Details Header */}
+                <div className="space-y-1">
+                  <h3 className="text-lg font-bold text-gray-900">Product Details</h3>
+                  <div className="text-xs space-y-1">
+                    <p className="font-bold text-gray-700 uppercase tracking-wider">Order ID : {selectedOrder.id}</p>
+                    <p className="font-bold text-gray-700 uppercase tracking-wider">Tracking ID : N/A</p>
+                  </div>
+                </div>
+
+                {/* Items Table */}
+                <div className="border border-rose-800 rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-white border-b border-rose-800">
+                        <th className="p-2 border-r border-rose-800 w-24 text-center text-rose-900 font-bold">Image</th>
+                        <th className="p-2 border-r border-rose-800 text-center text-rose-900 font-bold">Variation</th>
+                        <th className="p-2 border-r border-rose-800 w-16 text-center text-rose-900 font-bold">Qty</th>
+                        <th className="p-2 border-r border-rose-800 w-32 text-center text-rose-900 font-bold">Price</th>
+                        <th className="p-2 w-32 text-center text-rose-900 font-bold">Total Price</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedOrder.items.map((item, idx) => (
+                        <tr key={idx} className="border-b border-rose-800 last:border-0">
+                          <td className="p-2 border-r border-rose-800">
+                            <div className="w-16 h-16 mx-auto bg-gray-50 rounded border overflow-hidden">
+                              <img 
+                                src={fixDriveUrl(item.image)} 
+                                alt="" 
+                                className="w-full h-full object-cover" 
+                                referrerPolicy="no-referrer" 
+                              />
+                            </div>
+                          </td>
+                          <td className="p-3 border-r border-rose-800">
+                            <p className="font-bold text-gray-900 mb-1">{item.title}</p>
+                            {item.selectedVariants && Object.entries(item.selectedVariants).map(([key, value]) => (
+                              <p key={key} className="text-gray-600"><span className="font-bold">{key}:</span> {value}</p>
+                            ))}
+                          </td>
+                          <td className="p-2 border-r border-rose-800 text-center font-bold text-lg">
+                            {item.quantity}
+                          </td>
+                          <td className="p-2 border-r border-rose-800 text-center">
+                            <p className="text-rose-600 font-bold">{formatBDT(item.price_bdt || (item.price_rmb * 18))}</p>
+                            <p className="text-gray-400 line-through text-[10px]">¥{item.price_rmb}</p>
+                          </td>
+                          <td className="p-2 text-center font-bold text-gray-900">
+                            {formatBDT((item.price_bdt || (item.price_rmb * 18)) * item.quantity)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Payment Proof Section */}
                 {selectedOrder.paymentProof && (
-                  <div className="space-y-2">
-                    <h3 className="font-bold text-gray-900">Payment Proof</h3>
-                    <div className="flex gap-4 items-center bg-orange-50 p-4 rounded-2xl border border-orange-100">
-                      <img 
-                        src={fixDriveUrl(selectedOrder.paymentProof)} 
-                        alt="Proof" 
-                        className="w-24 h-24 rounded-xl object-cover border-2 border-white shadow-sm cursor-pointer" 
-                        referrerPolicy="no-referrer"
-                        onClick={() => window.open(selectedOrder.paymentProof, '_blank')}
-                      />
-                      <div>
-                        <p className="text-xs font-bold text-orange-400 uppercase">Transaction ID</p>
-                        <p className="text-lg font-bold text-gray-900">{selectedOrder.transactionId || 'N/A'}</p>
+                  <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
+                    <h3 className="text-sm font-bold text-orange-900 mb-3 uppercase tracking-wider">Payment Proof</h3>
+                    <div className="flex gap-4 items-center">
+                      <div className="w-24 h-24 bg-white rounded-lg border-2 border-white shadow-sm overflow-hidden shrink-0">
+                        <img 
+                          src={fixDriveUrl(selectedOrder.paymentProof)} 
+                          alt="Proof" 
+                          className="w-full h-full object-cover cursor-pointer" 
+                          referrerPolicy="no-referrer"
+                          onClick={() => window.open(selectedOrder.paymentProof, '_blank')}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-orange-400 uppercase">Transaction ID</p>
+                        <p className="text-lg font-black text-orange-900 tracking-tight">{selectedOrder.transactionId || 'N/A'}</p>
                         <button 
                           onClick={() => window.open(selectedOrder.paymentProof, '_blank')}
-                          className="mt-2 bg-white text-primary px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-2"
+                          className="flex items-center gap-2 text-xs font-bold text-orange-600 hover:text-orange-700 bg-white px-3 py-1.5 rounded-lg border border-orange-200"
                         >
                           <ExternalLink size={14} /> Open Full Image
                         </button>
@@ -2173,14 +2266,35 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                     </div>
                   </div>
                 )}
-              </div>
 
-              <button 
-                onClick={() => setSelectedOrder(null)}
-                className="w-full mt-8 bg-black text-white py-4 rounded-2xl font-bold hover:bg-gray-800 transition-all"
-              >
-                Close Details
-              </button>
+                {/* Final Totals Summary */}
+                <div className="flex justify-end">
+                  <div className="w-full md:w-64 space-y-2 pt-4 border-t border-gray-100">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500 font-bold uppercase">Total Amount</span>
+                      <span className="font-black text-gray-900">{formatBDT(selectedOrder.totalAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500 font-bold uppercase">Paid Amount</span>
+                      <span className="font-black text-emerald-600">{formatBDT(selectedOrder.paidAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-base font-black pt-2 border-t border-gray-900">
+                      <span className="uppercase tracking-tight">Remaining Due</span>
+                      <span className="text-rose-600">{formatBDT(selectedOrder.totalAmount - selectedOrder.paidAmount)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Action */}
+                <div className="pt-4">
+                  <button 
+                    onClick={() => setSelectedOrder(null)}
+                    className="w-full bg-black text-white py-4 rounded-xl font-bold hover:bg-gray-900 transition-all uppercase tracking-widest"
+                  >
+                    Close Details
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
