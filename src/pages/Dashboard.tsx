@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { Link } from "react-router-dom";
 import { 
   Package, 
   Wallet, 
@@ -16,7 +17,9 @@ import {
   X,
   ShieldCheck,
   Smartphone,
-  Building2
+  Building2,
+  Heart,
+  User
 } from "lucide-react";
 import { 
   collection, 
@@ -208,10 +211,13 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                 </button>
               )}
               {userProfile.role === 'admin' && (
-                <span className="bg-primary/10 text-primary text-[10px] px-2 py-0.5 rounded-lg font-bold flex items-center gap-1">
+                <Link 
+                  to="/admin"
+                  className="bg-primary/10 text-primary text-[10px] px-2 py-0.5 rounded-lg font-bold flex items-center gap-1 hover:bg-primary/20 transition-all"
+                >
                   <ShieldCheck size={12} />
                   ADMIN
-                </span>
+                </Link>
               )}
             </div>
           </div>
@@ -230,21 +236,49 @@ export default function Dashboard({ userProfile }: DashboardProps) {
         <div className="space-y-2">
           <button 
             onClick={() => setActiveTab('orders')}
-            className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-bold transition-all ${
+            className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl font-bold transition-all ${
               activeTab === 'orders' ? 'bg-primary text-white shadow-lg shadow-orange-200' : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
             }`}
           >
-            <Package size={20} />
-            My Orders
+            <div className="flex items-center gap-3">
+              <Package size={20} />
+              My Orders
+            </div>
+            <ChevronRight size={18} className={activeTab === 'orders' ? 'text-white' : 'text-gray-300'} />
           </button>
           <button 
             onClick={() => setActiveTab('wallet')}
-            className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-bold transition-all ${
+            className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl font-bold transition-all ${
               activeTab === 'wallet' ? 'bg-primary text-white shadow-lg shadow-orange-200' : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
             }`}
           >
-            <Wallet size={20} />
-            Wallet Balance
+            <div className="flex items-center gap-3">
+              <Wallet size={20} />
+              Wallet Balance
+            </div>
+            <ChevronRight size={18} className={activeTab === 'wallet' ? 'text-white' : 'text-gray-300'} />
+          </button>
+          
+          <Link 
+            to="/wishlist"
+            className="w-full flex items-center justify-between px-6 py-4 rounded-2xl font-bold bg-white text-gray-600 hover:bg-gray-50 border border-gray-100 transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <Heart size={20} />
+              My Wishlist
+            </div>
+            <ChevronRight size={18} className="text-gray-300" />
+          </Link>
+
+          <button 
+            className="w-full flex items-center justify-between px-6 py-4 rounded-2xl font-bold bg-white text-gray-600 hover:bg-gray-50 border border-gray-100 transition-all"
+            onClick={() => toast.info("Profile settings coming soon!")}
+          >
+            <div className="flex items-center gap-3">
+              <User size={20} />
+              Profile Settings
+            </div>
+            <ChevronRight size={18} className="text-gray-300" />
           </button>
         </div>
 

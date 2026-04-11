@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import BannerSlider from "../components/BannerSlider";
 import ProductCard from "../components/ProductCard";
 import { Product, UserProfile } from "../types";
-import { Zap, TrendingUp, Star, Plus, Settings, LayoutDashboard, LayoutGrid } from "lucide-react";
+import { Zap, TrendingUp, Star, Plus, Settings, LayoutDashboard, LayoutGrid, ChevronLeft, ChevronRight, Globe, Headphones } from "lucide-react";
 import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { Link } from "react-router-dom";
@@ -80,98 +80,93 @@ export default function Home({ userProfile }: HomeProps) {
 
       <BannerSlider />
 
-      {/* Categories */}
-      <section>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-black text-gray-900 tracking-tight uppercase">Categories</h2>
-          <Link to="/categories" className="text-xs font-bold text-primary hover:underline uppercase tracking-widest">See All</Link>
-        </div>
-        <div className="grid grid-cols-4 md:grid-cols-8 gap-4">
-          {categoriesLoading ? (
-            Array(8).fill(0).map((_, i) => (
-              <div key={i} className="h-24 bg-gray-100 animate-pulse rounded-2xl" />
-            ))
-          ) : (
-            categories.slice(0, 8).map((cat, i) => (
-              <Link 
-                key={i} 
-                to={`/category/${cat.name}`}
-                className="flex flex-col items-center gap-3 group"
-              >
-                <div className="w-16 h-16 rounded-2xl bg-white border border-gray-100 flex items-center justify-center shadow-sm group-hover:shadow-md group-hover:border-primary transition-all duration-300">
-                  <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                    <LayoutGrid size={20} />
-                  </div>
+      {/* Categories & Expertise Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Top Categories */}
+        <section className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-black text-gray-900 tracking-tight uppercase">Top Categories</h2>
+            <div className="flex gap-2">
+              <button className="p-2 rounded-full border border-gray-100 hover:bg-gray-50 transition-colors">
+                <ChevronLeft size={16} />
+              </button>
+              <button className="p-2 rounded-full border border-gray-100 hover:bg-gray-50 transition-colors">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-4">
+            {[
+              { name: "Bag", image: "https://images.unsplash.com/photo-1548036328-c9fa89d128fa?auto=format&fit=crop&q=80&w=200" },
+              { name: "Shoes", image: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=200" },
+              { name: "Jackets", image: "https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&q=80&w=200" },
+              { name: "Gadgets", image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=200" }
+            ].map((cat, i) => (
+              <Link key={i} to={`/category/${cat.name}`} className="flex flex-col items-center gap-3 group">
+                <div className="w-full aspect-square rounded-2xl overflow-hidden border border-gray-100 group-hover:border-primary transition-all">
+                  <img src={cat.image} alt={cat.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                 </div>
-                <span className="text-[10px] font-bold text-gray-500 text-center uppercase tracking-tight group-hover:text-primary transition-colors">{cat.name}</span>
+                <span className="text-xs font-bold text-gray-600 group-hover:text-primary transition-colors">{cat.name}</span>
               </Link>
-            ))
-          )}
-        </div>
-      </section>
-
-      {/* Flash Deals */}
-      <section>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-red-500 p-2.5 rounded-2xl text-white shadow-lg shadow-red-100">
-              <Zap size={24} fill="currentColor" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black tracking-tight text-gray-900 uppercase">Flash Deals</h2>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Limited time offers</p>
-            </div>
+            ))}
           </div>
-          <div className="flex items-center gap-3 bg-gray-50 px-4 py-2 rounded-2xl border border-gray-100">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Ends in:</span>
-            <div className="flex items-center gap-1.5">
-              {[
-                { label: 'H', value: '08' },
-                { label: 'M', value: '45' },
-                { label: 'S', value: '12' }
-              ].map((unit, i) => (
-                <div key={i} className="flex items-center gap-1">
-                  <div className="bg-black text-white w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm">
-                    {unit.value}
-                  </div>
-                  {i < 2 && <span className="text-black font-black">:</span>}
+        </section>
+
+        {/* Our Expertise */}
+        <section className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-black text-gray-900 tracking-tight uppercase">Our Expertise</h2>
+            <Link to="/" className="text-[10px] font-bold text-gray-400 hover:text-primary uppercase tracking-widest">See all</Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { name: "Ship for Me Request", icon: <Globe size={24} />, color: "bg-emerald-50 text-emerald-500" },
+              { name: "Request for Quotation", icon: <TrendingUp size={24} />, color: "bg-blue-50 text-blue-500" },
+              { name: "Talk to the Expert", icon: <Headphones size={24} />, color: "bg-rose-50 text-rose-500" },
+              { name: "Cost Calculator", icon: <LayoutGrid size={24} />, color: "bg-indigo-50 text-indigo-500" }
+            ].map((item, i) => (
+              <div key={i} className="flex flex-col items-center text-center gap-4 p-4 rounded-2xl hover:bg-gray-50 transition-colors cursor-pointer group">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${item.color} group-hover:scale-110 transition-transform`}>
+                  {item.icon}
                 </div>
-              ))}
-            </div>
+                <span className="text-[10px] font-bold text-gray-600 leading-tight">{item.name}</span>
+              </div>
+            ))}
           </div>
-        </div>
-        
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-          {loading ? (
-            Array(8).fill(0).map((_, i) => (
-              <div key={i} className="bg-gray-100 animate-pulse rounded-2xl aspect-[3/4]" />
-            ))
-          ) : (
-            products.slice(0, 8).map(product => (
-              <ProductCard key={product.id} product={product} />
-            ))
-          )}
-        </div>
-      </section>
+        </section>
+      </div>
 
-      {/* Trending Products */}
-      <section>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-500 p-2.5 rounded-2xl text-white shadow-lg shadow-blue-100">
-              <TrendingUp size={24} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black tracking-tight text-gray-900 uppercase">Trending Now</h2>
-              <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Most popular items</p>
-            </div>
+      {/* Global Shipping Services Title */}
+      <div className="text-center py-8">
+        <h2 className="text-2xl font-black text-gray-900 uppercase tracking-tighter">Global Shipping Services</h2>
+      </div>
+
+      {/* Product Hive Section */}
+      <section className="space-y-8">
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
+            Explore our MoveOn global product hive
+          </h2>
+          
+          <div className="flex flex-wrap gap-3">
+            {["Fashion", "Appliances", "Men's Shoes"].map((tab) => (
+              <button
+                key={tab}
+                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all border ${
+                  tab === "Fashion" 
+                    ? "bg-white text-[#00A651] border-[#00A651]" 
+                    : "bg-white text-gray-500 border-gray-100 hover:border-gray-300"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
           </div>
-          <Link to="/products" className="text-xs font-bold text-primary hover:underline uppercase tracking-widest">View All Products</Link>
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-6">
           {loading ? (
-            Array(8).fill(0).map((_, i) => (
+            Array(10).fill(0).map((_, i) => (
               <div key={i} className="bg-gray-100 animate-pulse rounded-2xl aspect-[3/4]" />
             ))
           ) : (
@@ -181,6 +176,9 @@ export default function Home({ userProfile }: HomeProps) {
           )}
         </div>
       </section>
+
+      {/* Flash Deals (Moving below or removing if redundant) */}
+      <section className="hidden" />
 
       {/* Trust Badges */}
       <section className="bg-white rounded-3xl p-8 border border-gray-100 grid grid-cols-1 sm:grid-cols-3 gap-8 shadow-sm">
