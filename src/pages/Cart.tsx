@@ -27,7 +27,6 @@ export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps
     const price = item.price_bdt || Math.round(item.price_rmb * 18.0);
     return acc + (price * item.quantity);
   }, 0);
-  const shipping = 500; // Mock shipping cost
 
   if (cart.length === 0) {
     return (
@@ -125,13 +124,9 @@ export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps
                 <span>Subtotal</span>
                 <span>{formatBDT(subtotal)}</span>
               </div>
-              <div className="flex justify-between text-gray-500">
-                <span>Shipping Charge (Est.)</span>
-                <span>{formatBDT(shipping)}</span>
-              </div>
               <div className="flex justify-between font-bold text-lg pt-4 border-t">
                 <span>Total</span>
-                <span className="text-primary">{formatBDT(subtotal + shipping)}</span>
+                <span className="text-primary">{formatBDT(subtotal)}</span>
               </div>
             </div>
 
@@ -145,12 +140,6 @@ export default function Cart({ cart, updateQuantity, removeFromCart }: CartProps
                 <ArrowRight size={20} />
               </motion.button>
             </Link>
-          </div>
-
-          <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100">
-            <p className="text-sm text-orange-800 leading-relaxed">
-              <strong>Note:</strong> Shipping charges may vary based on product weight. Final shipping charges will be determined after measuring the exact weight upon arrival in Bangladesh.
-            </p>
           </div>
         </div>
       </div>

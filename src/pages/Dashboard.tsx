@@ -22,9 +22,9 @@ import {
   collection, 
   query, 
   where, 
-  onSnapshot, 
   orderBy, 
   addDoc, 
+  getDocs,
   serverTimestamp,
   doc,
   updateDoc,
@@ -68,35 +68,34 @@ export default function Dashboard({ userProfile }: DashboardProps) {
     return fixedUrl;
   };
 
-  useEffect(() => {
+  const fetchDashboardData = async () => {
     if (!userProfile) return;
 
-    const ordersQuery = query(
-      collection(db, 'orders'),
-      where('userId', '==', userProfile.uid),
-      orderBy('createdAt', 'desc')
-    );
-
-    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+    try {
+      const ordersQuery = query(
+        collection(db, 'orders'),
+        where('userId', '==', userProfile.uid),
+        orderBy('createdAt', 'desc')
+      );
+      const ordersSnapshot = await getDocs(ordersQuery);
+      const ordersData = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
       setOrders(ordersData);
-    });
 
-    const refundsQuery = query(
-      collection(db, 'refundRequests'),
-      where('userId', '==', userProfile.uid),
-      orderBy('createdAt', 'desc')
-    );
-
-    const unsubscribeRefunds = onSnapshot(refundsQuery, (snapshot) => {
-      const refundsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RefundRequest));
+      const refundsQuery = query(
+        collection(db, 'refundRequests'),
+        where('userId', '==', userProfile.uid),
+        orderBy('createdAt', 'desc')
+      );
+      const refundsSnapshot = await getDocs(refundsQuery);
+      const refundsData = refundsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RefundRequest));
       setRefundRequests(refundsData);
-    });
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error);
+    }
+  };
 
-    return () => {
-      unsubscribeOrders();
-      unsubscribeRefunds();
-    };
+  useEffect(() => {
+    fetchDashboardData();
   }, [userProfile]);
 
   const handleLogout = async () => {

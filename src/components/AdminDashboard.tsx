@@ -38,15 +38,15 @@ import {
   Download,
   Eye,
   Ban,
+  AlertCircle,
   PackageCheck,
   Package,
 } from 'lucide-react';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { 
   collection, 
   query, 
   where, 
-  onSnapshot, 
   doc, 
   setDoc,
   updateDoc, 
@@ -57,12 +57,14 @@ import {
   serverTimestamp,
   increment,
   orderBy,
-  writeBatch
+  writeBatch,
+  limit
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Order, OrderStatus, RefundRequest, UserProfile, Product } from '../types';
 import { formatPrice, formatBDT } from '../lib/utils';
 import { toast } from 'sonner';
+import { useCategories } from '../contexts/CategoryContext';
 
 type AdminTab = 
   | 'pending-confirm'
@@ -126,13 +128,13 @@ const COMMON_CATEGORIES = [
 ];
 
 export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
+  const { categories: contextCategories, refreshCategories } = useCategories();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [orders, setOrders] = useState<Order[]>([]);
   const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDriveConnected, setIsDriveConnected] = useState(false);
@@ -221,16 +223,52 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     }
   };
 
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'payment'), (doc) => {
-      if (doc.exists()) {
-        setPaymentSettings(doc.data() as any);
+  const fetchAllData = async () => {
+    setLoading(true);
+    try {
+      // Fetch Orders - Limit to latest 100
+      const ordersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(100));
+      const ordersSnapshot = await getDocs(ordersQuery);
+      const ordersData = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+      setOrders(ordersData);
+
+      // Fetch Refunds - Limit to latest 100
+      const refundsQuery = query(collection(db, 'refundRequests'), orderBy('createdAt', 'desc'), limit(100));
+      const refundsSnapshot = await getDocs(refundsQuery);
+      const refundsData = refundsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RefundRequest));
+      setRefundRequests(refundsData);
+
+      // Fetch Users - Limit to latest 100
+      const usersQuery = query(collection(db, 'users'), limit(100));
+      const usersSnapshot = await getDocs(usersQuery);
+      const usersData = usersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+      setUsers(usersData);
+
+      // Fetch Products - Limit to latest 100
+      const productsQuery = query(collection(db, 'products'), orderBy('createdAt', 'desc'), limit(100));
+      const productsSnapshot = await getDocs(productsQuery);
+      const productsData = productsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
+      setProducts(productsData);
+
+      // Fetch Banners
+      const bannersSnapshot = await getDocs(collection(db, "banners"));
+      setBanners(bannersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+      // Fetch Payment Settings
+      const paymentDoc = await getDoc(doc(db, 'settings', 'payment'));
+      if (paymentDoc.exists()) {
+        setPaymentSettings(paymentDoc.data() as any);
       }
-    }, (error) => {
-      console.error("Error fetching payment settings:", error);
-      handleFirestoreError(error, OperationType.GET, 'settings/payment');
-    });
-    return () => unsub();
+    } catch (error) {
+      console.error("Error fetching admin data:", error);
+      handleFirestoreError(error, OperationType.GET, 'admin_data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllData();
   }, []);
 
   const handleSavePaymentSettings = async (e: React.FormEvent) => {
@@ -263,7 +301,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     description: '',
     video: '',
     variants: [],
-    specs: []
+    specs: [],
+    reviews: '',
+    attributes: [],
+    packing: '',
+    details: '',
+    htmlSource: ''
   });
   const [isFetching, setIsFetching] = useState(false);
   const [showReview, setShowReview] = useState(false);
@@ -289,12 +332,65 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
 
     setIsFetching(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
+      // Clean URL: remove tracking parameters and handle mobile links
+      let cleanUrl = sourcingForm.source_url;
+      try {
+        const urlObj = new URL(cleanUrl);
+        // Handle mobile 1688 links
+        if (urlObj.hostname === 'm.1688.com') {
+          urlObj.hostname = 'detail.1688.com';
+        }
+        // Keep essential parameters for 1688/Alibaba if any, but usually they are not needed for detail pages
+        // For 1688 detail pages, the offer ID is in the path
+        cleanUrl = urlObj.origin + urlObj.pathname;
+      } catch (e) {
+        // Fallback to original if URL parsing fails
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY || ((import.meta as any).env?.VITE_GEMINI_API_KEY as string);
+      if (!apiKey) {
+        throw new Error("Gemini API Key is missing. Please check your environment variables.");
+      }
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ 
         model: "gemini-3-flash-preview",
-        contents: `Analyze the product page at this URL: ${sourcingForm.source_url}.
+        generationConfig: {
+          responseMimeType: "application/json",
+        }
+      });
+      
+      let sourceToAnalyze = sourcingForm.htmlSource || '';
+      let extractedDataHint = '';
+      
+      if (sourceToAnalyze) {
+        // Try to extract critical JSON data blocks to help the AI focus
+        const patterns = [
+          /window\.detailData\s*=\s*(\{[\s\S]*?\});/, 
+          /iDetailData\s*=\s*(\{[\s\S]*?\});/, 
+          /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});/,
+          /window\.detailConfig\s*=\s*(\{[\s\S]*?\});/,
+          /iDetailConfig\s*=\s*(\{[\s\S]*?\});/
+        ];
         
-        Your task is to extract all relevant product information for an e-commerce site.
+        const foundBlocks = [];
+        for (const pattern of patterns) {
+          const match = sourceToAnalyze.match(pattern);
+          if (match) foundBlocks.push(match[1]);
+        }
+        
+        if (foundBlocks.length > 0) {
+          extractedDataHint = `\n\nCRITICAL DATA BLOCKS FOUND IN SOURCE (USE THESE FOR IMAGES AND VARIANTS):\n${foundBlocks.join('\n---\n')}\n`;
+        }
+      }
+
+      let prompt = `Analyze the product page. `;
+      if (sourcingForm.htmlSource) {
+        prompt += `I have provided the HTML source code of the page below. Use it as the primary source of information. ${extractedDataHint}`;
+      } else {
+        prompt += `Use the URL ${cleanUrl} to fetch the information. If the URL is blocked or requires login, use Google Search to find the product details (images, title, price, description) for the same product. `;
+      }
+      
+      prompt += `Your task is to extract all relevant product information for an e-commerce site.
         
         Return a JSON object with the following fields:
         - title: The full product name.
@@ -305,62 +401,55 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         - video: A URL to the product video if available.
         - category: A suitable category for this product.
         - specs: An array of objects with {label, value} for product specifications. Look for these in the 'Specifications' or 'Details' table.
-        - variants: An array of objects with {name, options[]} for product options (e.g., Color, Size). Look for these in the selection area.
+        - variants: An array of objects with {name, options[]} for product options (e.g., Color, Size). 
         
-        CRITICAL INSTRUCTIONS FOR ALIBABA/1688:
-        1. Look for 'window.detailData', 'window.detailConfig', or 'iDetailData' in the script tags of the HTML source. These often contain the real image URLs and descriptions.
-        2. Look for images in the main product slider, description body, and detail sections.
-        3. CLEAN ALL IMAGE URLs: Remove any thumbnail or resizing suffixes like '_50x50.jpg', '_Q90.jpg', '_300x300.jpg', '_640x640.jpg', etc. We need the ORIGINAL high-res images.
-        4. Ensure all URLs start with 'https:'.
-        5. If you find images in the description that are relevant, add them to the images array.
+        CRITICAL INSTRUCTIONS FOR ALIBABA/1688 VARIANTS:
+        1. Look for 'skuProps', 'skuMap', 'sku', 'item.skuProps', or 'skuConfig'.
+        2. Look for Chinese terms and translate them:
+           - "颜色" -> "Color"
+           - "尺码" or "尺寸" -> "Size"
+           - "规格" -> "Specification"
+        3. For each variant type (Color, Size, etc.), extract ALL available options.
+        4. If the options have specific prices in the 'skuMap', you can include the price in the option string (e.g., "Red - 25.3 RMB").
+        5. If you find image URLs associated with variants (like color swatches), add them to the 'images' array.
         
-        If you cannot find a specific field, return an empty string or empty array for that field. DO NOT use placeholder or mock data.`,
-        config: {
-          tools: [{ urlContext: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              price_rmb: { type: Type.NUMBER },
-              image: { type: Type.STRING },
-              images: { type: Type.ARRAY, items: { type: Type.STRING } },
-              description: { type: Type.STRING },
-              video: { type: Type.STRING },
-              category: { type: Type.STRING },
-              specs: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    label: { type: Type.STRING },
-                    value: { type: Type.STRING }
-                  }
-                }
-              },
-              variants: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    options: { type: Type.ARRAY, items: { type: Type.STRING } }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
+        CRITICAL INSTRUCTIONS FOR ALIBABA/1688 IMAGES:
+        1. Look for images in 'window.detailData', 'iDetailData', or 'window.__INITIAL_STATE__'.
+        2. Look for 'item.images', 'detailGallery', or 'images' arrays in the JSON blocks.
+        3. CLEAN ALL IMAGE URLs: Remove any thumbnail or resizing suffixes like '_50x50.jpg', '_Q90.jpg', '_300x300.jpg', '_640x640.jpg', '_400x400.jpg', '_80x80.jpg', '_60x60.jpg', etc. We need the ORIGINAL high-res images.
+        4. Ensure all URLs start with 'https:'. If they start with '//', prepend 'https:'.
+        
+        Return ONLY the raw JSON object. Do not wrap it in markdown blocks or add any other text.`;
 
-      let text = response.text;
+      const contents = sourcingForm.htmlSource 
+        ? [prompt, `HTML SOURCE CODE (TRUNCATED IF TOO LARGE):\n${sourceToAnalyze.substring(0, 100000)}`]
+        : prompt;
+
+      const result = await model.generateContent(contents);
+      const response = await result.response;
+      let text = response.text();
+      console.log("AI Raw Response:", text);
+      if (!text) throw new Error("Empty response from AI");
+
       if (text.includes('```json')) {
         text = text.split('```json')[1].split('```')[0];
       } else if (text.includes('```')) {
         text = text.split('```')[1].split('```')[0];
       }
       
-      const data = JSON.parse(text.trim());
+      let data;
+      try {
+        data = JSON.parse(text.trim());
+      } catch (e) {
+        console.error("JSON Parse Error. Raw text:", text);
+        // Try to find JSON in the text if it's not pure JSON
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          data = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error("Could not parse AI response as JSON");
+        }
+      }
       
       // Advanced Image Cleaning Function
       const cleanImageUrl = (url: string) => {
@@ -373,22 +462,32 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         // Remove common Alibaba/1688 thumbnail suffixes while keeping the extension
         // Matches things like _400x400.jpg, _Q90.jpg, _sum.jpg, etc.
         // Also handles .webp and other formats
-        cleaned = cleaned.replace(/(_\d+x\d+|_Q\d+|_sum|_640x640|_300x300|_50x50|_100x100|_200x200)(\.jpg|\.png|\.webp|\.jpeg).*$/, '$2');
+        // We use a more comprehensive regex to catch various patterns
+        cleaned = cleaned.replace(/(_\d+x\d+|_Q\d+|_sum|_640x640|_300x300|_50x50|_100x100|_200x200|_80x80|_40x40|_60x60|_720x720|_960x960)(\.jpg|\.png|\.webp|\.jpeg).*$/, '$2');
         
-        // Also handle cases where the suffix is after the extension like .jpg_400x400.jpg
+        // Handle cases where the suffix is after the extension like .jpg_400x400.jpg
         cleaned = cleaned.replace(/(\.jpg|\.png|\.webp|\.jpeg)_\d+x\d+.*$/, '$1');
         cleaned = cleaned.replace(/(\.jpg|\.png|\.webp|\.jpeg)_Q\d+.*$/, '$1');
+        cleaned = cleaned.replace(/(\.jpg|\.png|\.webp|\.jpeg)_sum.*$/, '$1');
+        cleaned = cleaned.replace(/(\.jpg|\.png|\.webp|\.jpeg)_\.webp.*$/, '$1');
         
         // Remove any query parameters that might interfere with loading
         if (cleaned.includes('?')) {
           cleaned = cleaned.split('?')[0];
         }
         
+        // Ensure it's a valid URL string
+        if (!cleaned.startsWith('http')) return '';
+        
         return cleaned;
       };
 
       if (data.image) data.image = cleanImageUrl(data.image);
-      if (data.images) data.images = data.images.map((img: string) => cleanImageUrl(img)).filter((img: string) => img);
+      if (data.images && Array.isArray(data.images)) {
+        data.images = data.images.map((img: string) => cleanImageUrl(img)).filter((img: string) => img);
+      } else {
+        data.images = [];
+      }
 
       if (!data.image && data.images && data.images.length > 0) {
         data.image = data.images[0];
@@ -397,64 +496,21 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       setSourcingForm(prev => ({
         ...prev,
         ...data,
-        source_url: prev.source_url
+        source_url: prev.source_url,
+        htmlSource: ''
       }));
       setShowReview(true);
       toast.success('Product details fetched successfully');
     } catch (error) {
       console.error('Fetch error:', error);
-      toast.error('Failed to fetch details. Please fill manually or try again.');
+      toast.error('Failed to fetch details. If the URL is blocked, please try the "Advanced: Paste Page Source" method below.', {
+        duration: 6000
+      });
     } finally {
       setIsFetching(false);
     }
   };
 
-  useEffect(() => {
-    const ordersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-    const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
-      const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-      setOrders(ordersData);
-      setLoading(false);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'orders'));
-
-    const refundsQuery = query(collection(db, 'refundRequests'), orderBy('createdAt', 'desc'));
-    const unsubscribeRefunds = onSnapshot(refundsQuery, (snapshot) => {
-      const refundsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RefundRequest));
-      setRefundRequests(refundsData);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'refundRequests'));
-
-    const usersQuery = query(collection(db, 'users'));
-    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-      const usersData = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-      setUsers(usersData);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
-
-    const productsQuery = query(collection(db, 'products'), orderBy('createdAt', 'desc'));
-    const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
-      const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product));
-      setProducts(productsData);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'products'));
-
-    return () => {
-      unsubscribeOrders();
-      unsubscribeRefunds();
-      unsubscribeUsers();
-      unsubscribeProducts();
-    };
-  }, []);
-
-  useEffect(() => {
-    const unsubscribeBanners = onSnapshot(collection(db, "banners"), (snapshot) => {
-      setBanners(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'banners'));
-    const unsubscribeCategories = onSnapshot(collection(db, "categories"), (snapshot) => {
-      setCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'categories'));
-    return () => {
-      unsubscribeBanners();
-      unsubscribeCategories();
-    };
-  }, []);
 
   const handleEditProduct = (product: Product) => {
     setSourcingForm({
@@ -468,7 +524,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       description: product.description || '',
       video: product.video || '',
       variants: product.variants || [],
-      specs: product.specs || []
+      specs: product.specs || [],
+      reviews: product.reviews || '',
+      attributes: product.attributes || [],
+      packing: product.packing || '',
+      details: product.details || '',
+      htmlSource: ''
     });
     setEditingProductId(product.id);
     setActiveTab('sourcing');
@@ -727,7 +788,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         description: '', 
         video: '', 
         variants: [],
-        specs: []
+        specs: [],
+        reviews: '',
+        attributes: [],
+        packing: '',
+        details: '',
+        htmlSource: ''
       });
       setEditingProductId(null);
       setShowReview(false);
@@ -755,6 +821,8 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       });
       setNewCategory({ name: '', sub: [], image: '' });
       toast.success('Category added successfully');
+      await refreshCategories();
+      await fetchAllData();
     } catch (error) {
       console.error('Error adding category:', error);
       toast.error('Failed to add category');
@@ -762,7 +830,6 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   };
 
   const seedCategories = async () => {
-    if (!window.confirm('This will add all common categories to your store. Continue?')) return;
     try {
       const batch = writeBatch(db);
       COMMON_CATEGORIES.forEach(cat => {
@@ -775,6 +842,8 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       });
       await batch.commit();
       toast.success('Categories seeded successfully!');
+      await refreshCategories();
+      await fetchAllData();
     } catch (error) {
       toast.error('Failed to seed categories');
     }
@@ -823,17 +892,15 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     console.log('Collection:', coll);
     console.log('ID:', id);
     
-    const confirmDelete = window.confirm('Are you sure you want to delete this?');
-    if (!confirmDelete) {
-      console.log('Delete cancelled by user');
-      return;
-    }
-
     try {
       console.log('Sending delete request to Firestore...');
       await deleteDoc(doc(db, coll, id));
       console.log('Delete request successful');
       toast.success('Deleted successfully');
+      if (coll === 'categories') {
+        await refreshCategories();
+      }
+      await fetchAllData();
     } catch (error) {
       console.error('CRITICAL DELETE ERROR:', error);
       toast.error('Failed to delete');
@@ -980,7 +1047,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   }, []);
 
   const safeFetch = async (url: string, options?: RequestInit) => {
-    return await window.fetch(url, options);
+    return await fetch(url, options);
   };
 
   const checkDriveStatus = async () => {
@@ -1091,10 +1158,8 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       setIsUploadingToDrive(false);
     }
   };
-  const handleRefreshData = () => {
-    setLoading(true);
-    // Snapshot listeners will handle the actual data update
-    setTimeout(() => setLoading(false), 1000);
+  const handleRefreshData = async () => {
+    await fetchAllData();
     toast.success('Data refreshed');
   };
 
@@ -1353,7 +1418,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                     </div>
                   </form>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {categories.map(cat => (
+                    {contextCategories.map(cat => (
                       <div key={cat.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between group hover:bg-white hover:shadow-md transition-all">
                         <div>
                           <span className="font-bold text-gray-900 block">{cat.name}</span>
@@ -1725,10 +1790,175 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                         onChange={e => setSourcingForm({...sourcingForm, category: e.target.value})}
                       >
                         <option value="General">General</option>
-                        {categories.sort((a, b) => a.name.localeCompare(b.name)).map(cat => (
+                        {contextCategories.sort((a, b) => a.name.localeCompare(b.name)).map(cat => (
                           <option key={cat.id} value={cat.name}>{cat.name}</option>
                         ))}
                       </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Product Reviews</label>
+                        <textarea 
+                          rows={3}
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none transition-all text-sm"
+                          placeholder="Paste or edit product reviews..."
+                          value={sourcingForm.reviews}
+                          onChange={e => setSourcingForm({...sourcingForm, reviews: e.target.value})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Packing Info</label>
+                        <textarea 
+                          rows={3}
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none transition-all text-sm"
+                          placeholder="Packing details (e.g., weight, dimensions)..."
+                          value={sourcingForm.packing}
+                          onChange={e => setSourcingForm({...sourcingForm, packing: e.target.value})}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Product Details (Rich Content)</label>
+                      <textarea 
+                        rows={4}
+                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none transition-all text-sm"
+                        placeholder="Additional detailed information..."
+                        value={sourcingForm.details}
+                        onChange={e => setSourcingForm({...sourcingForm, details: e.target.value})}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Product Attributes</label>
+                      <div className="space-y-2">
+                        {(sourcingForm.attributes || []).map((attr, idx) => (
+                          <div key={idx} className="flex gap-2">
+                            <input 
+                              type="text" 
+                              placeholder="Label (e.g. Material)"
+                              className="flex-1 px-4 py-2 rounded-lg border border-gray-200 text-sm"
+                              value={attr.label}
+                              onChange={e => {
+                                const newAttrs = [...(sourcingForm.attributes || [])];
+                                newAttrs[idx].label = e.target.value;
+                                setSourcingForm({...sourcingForm, attributes: newAttrs});
+                              }}
+                            />
+                            <input 
+                              type="text" 
+                              placeholder="Value (e.g. Cotton)"
+                              className="flex-[2] px-4 py-2 rounded-lg border border-gray-200 text-sm"
+                              value={attr.value}
+                              onChange={e => {
+                                const newAttrs = [...(sourcingForm.attributes || [])];
+                                newAttrs[idx].value = e.target.value;
+                                setSourcingForm({...sourcingForm, attributes: newAttrs});
+                              }}
+                            />
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newAttrs = (sourcingForm.attributes || []).filter((_, i) => i !== idx);
+                                setSourcingForm({...sourcingForm, attributes: newAttrs});
+                              }}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ))}
+                        <button 
+                          type="button"
+                          onClick={() => setSourcingForm({
+                            ...sourcingForm, 
+                            attributes: [...(sourcingForm.attributes || []), { label: '', value: '' }]
+                          })}
+                          className="text-xs font-bold text-primary flex items-center gap-1 hover:underline"
+                        >
+                          <Plus size={14} /> Add Attribute
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Product Variants (e.g. Color, Size)</label>
+                      <div className="space-y-4">
+                        {(sourcingForm.variants || []).map((variant, vIdx) => (
+                          <div key={vIdx} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <input 
+                                type="text" 
+                                placeholder="Variant Name (e.g. Color)"
+                                className="bg-transparent font-bold text-sm outline-none border-b border-transparent focus:border-primary transition-all"
+                                value={variant.name}
+                                onChange={e => {
+                                  const newVariants = [...(sourcingForm.variants || [])];
+                                  newVariants[vIdx].name = e.target.value;
+                                  setSourcingForm({...sourcingForm, variants: newVariants});
+                                }}
+                              />
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newVariants = (sourcingForm.variants || []).filter((_, i) => i !== vIdx);
+                                  setSourcingForm({...sourcingForm, variants: newVariants});
+                                }}
+                                className="text-red-500 hover:bg-red-50 p-1 rounded"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                            
+                            <div className="flex flex-wrap gap-2">
+                              {variant.options.map((option, oIdx) => (
+                                <div key={oIdx} className="flex items-center gap-1 bg-white border border-gray-200 px-2 py-1 rounded-lg text-xs">
+                                  <span>{option}</span>
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      const newVariants = [...(sourcingForm.variants || [])];
+                                      newVariants[vIdx].options = variant.options.filter((_, i) => i !== oIdx);
+                                      setSourcingForm({...sourcingForm, variants: newVariants});
+                                    }}
+                                    className="text-gray-400 hover:text-red-500"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
+                              ))}
+                              <input 
+                                type="text" 
+                                placeholder="Add option..."
+                                className="bg-transparent text-xs outline-none border-b border-gray-200 focus:border-primary w-24"
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const val = (e.target as HTMLInputElement).value.trim();
+                                    if (val) {
+                                      const newVariants = [...(sourcingForm.variants || [])];
+                                      newVariants[vIdx].options = [...variant.options, val];
+                                      setSourcingForm({...sourcingForm, variants: newVariants});
+                                      (e.target as HTMLInputElement).value = '';
+                                    }
+                                  }
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                        <button 
+                          type="button"
+                          onClick={() => setSourcingForm({
+                            ...sourcingForm, 
+                            variants: [...(sourcingForm.variants || []), { name: '', options: [] }]
+                          })}
+                          className="text-xs font-bold text-primary flex items-center gap-1 hover:underline"
+                        >
+                          <Plus size={14} /> Add Variant Group
+                        </button>
+                      </div>
                     </div>
 
                     <div>
@@ -1821,7 +2051,16 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Source URL (1688/Alibaba)</label>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase">Source URL (1688/Alibaba)</label>
+                        <button 
+                          type="button"
+                          onClick={() => setSourcingForm({...sourcingForm, source_url: '', htmlSource: '', image: '', images: []})}
+                          className="text-[10px] text-red-500 hover:underline font-bold"
+                        >
+                          Clear All
+                        </button>
+                      </div>
                       <div className="flex gap-2">
                         <input 
                           type="url" 
@@ -1841,6 +2080,64 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                           {showReview ? 'Re-Fetch' : 'Review'}
                         </button>
                       </div>
+                      {(sourcingForm.source_url.includes('1688.com') || sourcingForm.source_url.includes('alibaba.com')) && (
+                        <div className="mt-2 space-y-1">
+                          <p className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
+                            <AlertCircle size={12} />
+                            Tip: Alibaba/1688 links are often blocked. Use the "Advanced" method below.
+                          </p>
+                          <p className="text-[10px] text-amber-600 font-medium font-bangla">
+                            টিপ: আলিবাবা/১৬৮৮ লিঙ্কগুলো সরাসরি কাজ না করলে নিচের "Advanced" পদ্ধতি ব্যবহার করুন।
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-amber-800 font-bold text-xs uppercase">
+                          <FileText size={14} />
+                          Advanced: Paste Page Source (Recommended for Alibaba/1688)
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => setSourcingForm({...sourcingForm, htmlSource: ''})}
+                          className="text-[10px] text-amber-600 hover:underline font-bold"
+                        >
+                          Clear Source
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-amber-700 leading-relaxed">
+                        Alibaba and 1688 have strong security that often blocks direct links. For best results:
+                        <br />
+                        1. Open the product on Alibaba/1688.
+                        <br />
+                        2. Right-click anywhere and select <b>"View Page Source"</b>.
+                        <br />
+                        3. Copy everything (Ctrl+A, Ctrl+C) and paste it below.
+                        <br />
+                        4. Click <b>Review</b> again.
+                      </p>
+                      <p className="text-[10px] text-amber-700 leading-relaxed font-bangla border-t border-amber-100 pt-2 mt-2">
+                        আলিবাবা/১৬৮৮ লিঙ্ক সরাসরি কাজ না করলে:
+                        <br />
+                        ১. পন্যের পেজটি ওপেন করুন।
+                        <br />
+                        ২. মাউসের রাইট ক্লিক করে <b>"View Page Source"</b> সিলেক্ট করুন।
+                        <br />
+                        ৩. সব কোড কপি করে (Ctrl+A, Ctrl+C) নিচের বক্সে পেস্ট করুন।
+                        <br />
+                        ৪. পন্যের ছবি না আসলে ছবির ওপর রাইট ক্লিক করে <b>"Copy Image Address"</b> করে নিচের বক্সে পেস্ট করুন।
+                        <br />
+                        ৫. তারপর আবার <b>Review</b> বাটনে ক্লিক করুন।
+                      </p>
+                      <textarea 
+                        rows={2}
+                        className="w-full px-4 py-3 rounded-xl border border-amber-200 focus:ring-2 focus:ring-amber-500 outline-none transition-all text-[10px] font-mono bg-white/50"
+                        placeholder="Paste HTML source code here..."
+                        value={sourcingForm.htmlSource}
+                        onChange={e => setSourcingForm({...sourcingForm, htmlSource: e.target.value})}
+                      />
                     </div>
 
                     {showReview && (
@@ -1863,8 +2160,31 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                         </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-3">
-                            <p className="text-xs font-bold text-blue-800 uppercase">Primary Image</p>
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <p className="text-xs font-bold text-blue-800 uppercase">Product Title</p>
+                              <input 
+                                type="text"
+                                className="w-full px-4 py-3 rounded-xl border border-blue-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-xs"
+                                value={sourcingForm.title}
+                                onChange={e => setSourcingForm({...sourcingForm, title: e.target.value})}
+                              />
+                            </div>
+                            
+                            <div className="space-y-2">
+                              <p className="text-xs font-bold text-blue-800 uppercase">Price (RMB)</p>
+                              <input 
+                                type="number"
+                                className="w-full px-4 py-3 rounded-xl border border-blue-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-xs"
+                                value={sourcingForm.price_rmb}
+                                onChange={e => setSourcingForm({...sourcingForm, price_rmb: Number(e.target.value)})}
+                              />
+                            </div>
+
+                            <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-bold text-blue-800 uppercase">Primary Image</p>
+                            </div>
                             <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-blue-200 relative group">
                               <img 
                                 src={fixDriveUrl(sourcingForm.image) || "https://placehold.co/400x400/f3f4f6/94a3b8?text=No+Image+Found"} 
@@ -1875,29 +2195,86 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                   (e.target as HTMLImageElement).src = "https://placehold.co/400x400/f3f4f6/94a3b8?text=Image+Error";
                                 }}
                               />
-                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                 <button 
                                   type="button"
                                   onClick={() => {
-                                    // Trigger a re-render by slightly modifying the URL if possible or just toast
                                     toast.info("Refreshing image...");
                                     const current = sourcingForm.image;
                                     setSourcingForm(prev => ({...prev, image: ''}));
                                     setTimeout(() => setSourcingForm(prev => ({...prev, image: current})), 100);
                                   }}
-                                  className="bg-white p-2 rounded-full shadow-lg text-blue-600"
+                                  className="bg-white p-2 rounded-full shadow-lg text-blue-600 hover:scale-110 transition-transform"
+                                  title="Refresh"
                                 >
                                   <RefreshCcw size={20} />
                                 </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    if (sourcingForm.image) {
+                                      window.open(sourcingForm.image, '_blank');
+                                    }
+                                  }}
+                                  className="bg-white p-2 rounded-full shadow-lg text-blue-600 hover:scale-110 transition-transform"
+                                  title="Open Original"
+                                >
+                                  <ExternalLink size={20} />
+                                </button>
                               </div>
+                            </div>
+                            <input 
+                              type="text"
+                              placeholder="Primary Image URL"
+                              className="w-full px-3 py-2 text-[10px] rounded-lg border border-blue-200 bg-white/50 focus:ring-2 focus:ring-blue-500 outline-none"
+                              value={sourcingForm.image}
+                              onChange={e => setSourcingForm(prev => ({...prev, image: e.target.value}))}
+                            />
+                            <div className="p-3 bg-blue-100/50 rounded-xl border border-blue-200">
+                              <p className="text-[10px] text-blue-700 leading-relaxed font-bangla">
+                                টিপ: ছবি না আসলে পন্যের পেজ থেকে ছবির ওপর রাইট ক্লিক করে <b>"Copy Image Address"</b> করে উপরের বক্সে পেস্ট করুন।
+                              </p>
+                            </div>
                             </div>
                           </div>
                           
                           <div className="space-y-3">
-                            <p className="text-xs font-bold text-blue-800 uppercase">Gallery ({sourcingForm.images?.length || 0})</p>
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-bold text-blue-800 uppercase">Gallery ({sourcingForm.images?.length || 0})</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <input 
+                                type="text"
+                                placeholder="Add Gallery Image URL"
+                                className="flex-1 px-3 py-2 text-[10px] rounded-lg border border-blue-200 bg-white/50 focus:ring-2 focus:ring-blue-500 outline-none"
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    const url = (e.target as HTMLInputElement).value;
+                                    if (url) {
+                                      setSourcingForm(prev => ({...prev, images: [...(prev.images || []), url]}));
+                                      (e.target as HTMLInputElement).value = '';
+                                    }
+                                  }
+                                }}
+                              />
+                              <button 
+                                type="button"
+                                onClick={(e) => {
+                                  const input = (e.currentTarget.previousSibling as HTMLInputElement);
+                                  const url = input.value;
+                                  if (url) {
+                                    setSourcingForm(prev => ({...prev, images: [...(prev.images || []), url]}));
+                                    input.value = '';
+                                  }
+                                }}
+                                className="bg-blue-600 text-white px-3 py-2 rounded-lg text-[10px] font-bold"
+                              >
+                                Add
+                              </button>
+                            </div>
                             <div className="grid grid-cols-3 gap-2">
                               {sourcingForm.images?.slice(0, 6).map((img, i) => (
-                                <div key={i} className="aspect-square rounded-lg overflow-hidden border border-blue-200 bg-white">
+                                <div key={i} className="aspect-square rounded-lg overflow-hidden border border-blue-200 bg-white relative group/item">
                                   <img 
                                     src={fixDriveUrl(img) || "https://placehold.co/100x100/f3f4f6/94a3b8?text=No+Img"} 
                                     alt="" 
@@ -1907,6 +2284,18 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                       (e.target as HTMLImageElement).src = "https://placehold.co/100x100/f3f4f6/94a3b8?text=Error";
                                     }}
                                   />
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      setSourcingForm(prev => ({
+                                        ...prev,
+                                        images: prev.images?.filter((_, index) => index !== i)
+                                      }));
+                                    }}
+                                    className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover/item:opacity-100 transition-opacity shadow-sm"
+                                  >
+                                    <X size={10} />
+                                  </button>
                                 </div>
                               ))}
                               {sourcingForm.images && sourcingForm.images.length > 6 && (
@@ -1915,18 +2304,126 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                 </div>
                               )}
                             </div>
-                            <div className="pt-2">
-                              <p className="text-xs font-bold text-blue-800 uppercase mb-1">Variants Found</p>
-                              <div className="flex flex-wrap gap-1">
+                            <div className="p-3 bg-blue-100/50 rounded-xl border border-blue-200">
+                              <p className="text-[10px] text-blue-700 leading-relaxed font-bangla">
+                                টিপ: গ্যালারি ছবি যোগ করতে ছবির অ্যাড্রেস কপি করে উপরের বক্সে পেস্ট করে <b>Add</b> বাটনে ক্লিক করুন।
+                              </p>
+                            </div>
+                            <div className="pt-2 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-bold text-blue-800 uppercase">Variants Found</p>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    const name = window.prompt("Variant Name (e.g. Color, Size):");
+                                    if (name) {
+                                      setSourcingForm(prev => ({
+                                        ...prev,
+                                        variants: [...(prev.variants || []), { name, options: [] }]
+                                      }));
+                                    }
+                                  }}
+                                  className="text-[10px] text-blue-600 hover:underline font-bold"
+                                >
+                                  Add Variant
+                                </button>
+                              </div>
+                              
+                              <div className="space-y-3">
                                 {sourcingForm.variants?.map((v, i) => (
-                                  <span key={i} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">
-                                    {v.name} ({v.options.length})
-                                  </span>
+                                  <div key={i} className="p-3 bg-white rounded-xl border border-blue-100 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <input 
+                                        type="text"
+                                        className="text-[10px] font-bold text-blue-900 bg-transparent border-none focus:ring-0 p-0 w-1/2"
+                                        value={v.name}
+                                        onChange={e => {
+                                          const newVariants = [...(sourcingForm.variants || [])];
+                                          newVariants[i].name = e.target.value;
+                                          setSourcingForm({...sourcingForm, variants: newVariants});
+                                        }}
+                                      />
+                                      <button 
+                                        type="button"
+                                        onClick={() => {
+                                          setSourcingForm(prev => ({
+                                            ...prev,
+                                            variants: prev.variants?.filter((_, index) => index !== i)
+                                          }));
+                                        }}
+                                        className="text-red-400 hover:text-red-600"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                    
+                                    <div className="flex flex-wrap gap-1">
+                                      {v.options.map((opt, optIdx) => (
+                                        <span key={optIdx} className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] flex items-center gap-1">
+                                          {opt}
+                                          <button 
+                                            type="button"
+                                            onClick={() => {
+                                              const newVariants = [...(sourcingForm.variants || [])];
+                                              newVariants[i].options = newVariants[i].options.filter((_, idx) => idx !== optIdx);
+                                              setSourcingForm({...sourcingForm, variants: newVariants});
+                                            }}
+                                            className="hover:text-red-500"
+                                          >
+                                            <X size={8} />
+                                          </button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                    
+                                    <div className="flex gap-1">
+                                      <input 
+                                        type="text"
+                                        placeholder="Add option..."
+                                        className="flex-1 text-[10px] px-2 py-1 rounded border border-blue-50 outline-none focus:border-blue-200"
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') {
+                                            const val = (e.target as HTMLInputElement).value;
+                                            if (val) {
+                                              const newVariants = [...(sourcingForm.variants || [])];
+                                              newVariants[i].options = [...newVariants[i].options, val];
+                                              setSourcingForm({...sourcingForm, variants: newVariants});
+                                              (e.target as HTMLInputElement).value = '';
+                                            }
+                                          }
+                                        }}
+                                      />
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => {
+                                          const input = (e.currentTarget.previousSibling as HTMLInputElement);
+                                          const val = input.value;
+                                          if (val) {
+                                            const newVariants = [...(sourcingForm.variants || [])];
+                                            newVariants[i].options = [...newVariants[i].options, val];
+                                            setSourcingForm({...sourcingForm, variants: newVariants});
+                                            input.value = '';
+                                          }
+                                        }}
+                                        className="bg-blue-500 text-white px-2 py-1 rounded text-[10px] font-bold"
+                                      >
+                                        Add
+                                      </button>
+                                    </div>
+                                  </div>
                                 ))}
+                                
                                 {(!sourcingForm.variants || sourcingForm.variants.length === 0) && (
-                                  <span className="text-[10px] text-blue-400 italic">No variants detected</span>
+                                  <div className="p-4 bg-white/50 rounded-xl border border-dashed border-blue-200 text-center">
+                                    <p className="text-[10px] text-blue-400 italic">No variants detected. Click "Add Variant" to add manually.</p>
+                                  </div>
                                 )}
                               </div>
+                            </div>
+                            <div className="p-3 bg-blue-100/50 rounded-xl border border-blue-200">
+                              <p className="text-[10px] text-blue-700 leading-relaxed font-bangla">
+                                টিপ: ভেরিয়েন্ট (যেমন: কালার, সাইজ) না আসলে <b>Add Variant</b> বাটনে ক্লিক করে ম্যানুয়ালি যোগ করুন।
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -1945,7 +2442,12 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             image: '',
                             source_url: '',
                             images: [],
-                            specs: []
+                            specs: [],
+                            reviews: '',
+                            attributes: [],
+                            packing: '',
+                            details: '',
+                            htmlSource: ''
                           });
                           setProfitMargin(15);
                           setEditingProductId(null);

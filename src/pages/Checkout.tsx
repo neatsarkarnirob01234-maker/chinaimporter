@@ -4,7 +4,7 @@ import { CreditCard, Truck, ShieldCheck, Upload, CheckCircle2, AlertCircle, Shop
 import { formatPrice, formatBDT } from "../lib/utils";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
-import { collection, addDoc, serverTimestamp, doc, onSnapshot, runTransaction, increment } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, getDoc, runTransaction, increment } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { UserProfile, CartItem } from "../types";
 import { useNavigate, Link } from "react-router-dom";
@@ -44,15 +44,18 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'payment'), (doc) => {
-      if (doc.exists()) {
-        setPaymentSettings(doc.data() as any);
+    const fetchSettings = async () => {
+      try {
+        const docSnap = await getDoc(doc(db, 'settings', 'payment'));
+        if (docSnap.exists()) {
+          setPaymentSettings(docSnap.data() as any);
+        }
+      } catch (error) {
+        console.error("Error fetching payment settings:", error);
+        handleFirestoreError(error, OperationType.GET, 'settings/payment');
       }
-    }, (error) => {
-      console.error("Error fetching payment settings:", error);
-      handleFirestoreError(error, OperationType.GET, 'settings/payment');
-    });
-    return () => unsub();
+    };
+    fetchSettings();
   }, []);
 
   const subtotalBDT = cart.reduce((acc, item) => {
@@ -522,7 +525,7 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
             <div className="bg-white border border-dashed border-gray-300 rounded-lg p-4 text-center space-y-1">
               <p className="text-xs font-bold text-gray-800">Pay on Delivery</p>
               <div className="flex items-center justify-center gap-1 text-sm font-bold">
-                <span>{formatPriceBDT(payOnDeliveryAmount)} + Shipping & Courier Charges</span>
+                <span>{formatPriceBDT(payOnDeliveryAmount)}</span>
                 <AlertCircle size={14} className="text-gray-400" />
               </div>
             </div>

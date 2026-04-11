@@ -28,12 +28,12 @@ export default function Header({ userProfile, cartCount }: HeaderProps) {
       <div className="container mx-auto px-4 h-20 flex items-center justify-between gap-4">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 shrink-0">
-          <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-bold text-xl">
-            S
-          </div>
-          <span className="text-xl font-bold tracking-tight hidden sm:block">
-            Sourcing<span className="text-primary">Pro</span>
-          </span>
+          <img 
+            src="https://raw.githubusercontent.com/antigravity-ai/app-assets/main/china-importer-logo.png" 
+            alt="China Importer" 
+            className="h-14 w-auto object-contain"
+            referrerPolicy="no-referrer"
+          />
         </Link>
 
         {/* Search Bar */}

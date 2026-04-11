@@ -1,35 +1,10 @@
 import { ChevronRight, Smartphone, Watch, Shirt, Home, Zap, Gift, MoreHorizontal, Menu as MenuIcon, Package } from "lucide-react";
 import { motion } from "motion/react";
 import { Link } from "react-router-dom";
-import { useState, useEffect } from "react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db, handleFirestoreError, OperationType } from "../firebase";
+import { useCategories } from "../contexts/CategoryContext";
 
 export default function Sidebar() {
-  const [categories, setCategories] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const q = query(collection(db, "categories"), orderBy("createdAt", "asc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedCategories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      if (fetchedCategories.length > 0) {
-        setCategories(fetchedCategories);
-      } else {
-        // Fallback to default categories
-        setCategories([
-          { name: "Electronics", sub: ["Mobile", "Laptop", "Accessories"] },
-          { name: "Fashion", sub: ["Men", "Women", "Kids"] },
-          { name: "Watch & Jewelry", sub: ["Smart Watch", "Analog", "Jewelry"] },
-          { name: "Home & Living", sub: ["Kitchen", "Decor", "Furniture"] },
-          { name: "Gadgets", sub: ["Power Bank", "Headphone", "Speaker"] },
-          { name: "Gift Items", sub: ["Birthday", "Wedding", "Others"] },
-        ]);
-      }
-      setLoading(false);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'categories'));
-    return () => unsubscribe();
-  }, []);
+  const { categories, loading } = useCategories();
 
   const getIcon = (name: string) => {
     switch (name) {

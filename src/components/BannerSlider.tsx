@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChevronLeft, ChevronRight, ShieldCheck, Truck, CreditCard, Image as ImageIcon } from "lucide-react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 
 export default function BannerSlider() {
@@ -10,40 +10,47 @@ export default function BannerSlider() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, "banners"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedBanners = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      if (fetchedBanners.length > 0) {
-        setSlides(fetchedBanners);
-      } else {
-        // Fallback to default slides
-        setSlides([
-          {
-            title: "Import Directly from China",
-            subtitle: "Best quality at the lowest price",
-            image: "https://picsum.photos/seed/banner1/1200/400",
-            icon: "ShieldCheck",
-            color: "bg-primary",
-          },
-          {
-            title: "Fast Delivery Guaranteed",
-            subtitle: "Directly to your doorstep",
-            image: "https://picsum.photos/seed/banner2/1200/400",
-            icon: "Truck",
-            color: "bg-secondary",
-          },
-          {
-            title: "Secure Payment System",
-            subtitle: "Pay with bKash, Nagad & Bank",
-            image: "https://picsum.photos/seed/banner3/1200/400",
-            icon: "CreditCard",
-            color: "bg-green-600",
-          },
-        ]);
+    const fetchBanners = async () => {
+      try {
+        const q = query(collection(db, "banners"), orderBy("createdAt", "desc"));
+        const snapshot = await getDocs(q);
+        const fetchedBanners = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        if (fetchedBanners.length > 0) {
+          setSlides(fetchedBanners);
+        } else {
+          // Fallback to default slides
+          setSlides([
+            {
+              title: "Import Directly from China",
+              subtitle: "Best quality at the lowest price",
+              image: "https://picsum.photos/seed/banner1/1200/400",
+              icon: "ShieldCheck",
+              color: "bg-primary",
+            },
+            {
+              title: "Fast Delivery Guaranteed",
+              subtitle: "Directly to your doorstep",
+              image: "https://picsum.photos/seed/banner2/1200/400",
+              icon: "Truck",
+              color: "bg-secondary",
+            },
+            {
+              title: "Secure Payment System",
+              subtitle: "Pay with bKash, Nagad & Bank",
+              image: "https://picsum.photos/seed/banner3/1200/400",
+              icon: "CreditCard",
+              color: "bg-green-600",
+            },
+          ]);
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, 'banners');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'banners'));
-    return () => unsubscribe();
+    };
+
+    fetchBanners();
   }, []);
 
   useEffect(() => {

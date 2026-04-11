@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { Product } from "../types";
 import ProductCard from "../components/ProductCard";
 import { LayoutGrid, ChevronRight } from "lucide-react";
@@ -12,24 +12,31 @@ export default function Category() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!categoryName) return;
-    setLoading(true);
-    
-    const q = query(
-      collection(db, "products"), 
-      where("category", "==", categoryName)
-    );
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const fetchedProducts = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as Product));
-      setProducts(fetchedProducts);
-      setLoading(false);
-    });
+    const fetchProducts = async () => {
+      if (!categoryName) return;
+      setLoading(true);
+      
+      try {
+        const q = query(
+          collection(db, "products"), 
+          where("category", "==", categoryName)
+        );
+        
+        const querySnapshot = await getDocs(q);
+        const fetchedProducts = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        } as Product));
+        setProducts(fetchedProducts);
+      } catch (error) {
+        console.error("Error fetching category products:", error);
+        handleFirestoreError(error, OperationType.GET, `products?category=${categoryName}`);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    return () => unsubscribe();
+    fetchProducts();
   }, [categoryName]);
 
   return (

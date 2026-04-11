@@ -10,6 +10,11 @@ export interface Product {
   description?: string;
   video?: string;
   specs?: { label: string; value: string }[];
+  reviews?: string;
+  attributes?: { label: string; value: string }[];
+  packing?: string;
+  details?: string;
+  htmlSource?: string;
   variants?: {
     name: string;
     options: string[];

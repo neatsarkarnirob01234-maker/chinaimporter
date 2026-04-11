@@ -3,8 +3,8 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { ShoppingCart, ShieldCheck, Truck, CreditCard, Star, ChevronLeft, ExternalLink, Loader2, TrendingUp } from "lucide-react";
 import { formatPrice, formatBDT } from "../lib/utils";
-import { doc, onSnapshot, query, collection, where, limit } from "firebase/firestore";
-import { db } from "../firebase";
+import { doc, getDoc, getDocs, query, collection, where, limit } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
 import { Product, CartItem } from "../types";
 import { toast } from "sonner";
 import ProductCard from "../components/ProductCard";
@@ -22,6 +22,7 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
   const [activeImage, setActiveImage] = useState<string>("");
   const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
+  const [activeTab, setActiveTab] = useState<'reviews' | 'attributes' | 'packing' | 'details'>('details');
 
   const fixDriveUrl = (url: string) => {
     if (!url) return url;
@@ -44,38 +45,44 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
     : (product ? formatPrice(product.price_rmb * 1.2 * quantity) : '');
 
   useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    
-    const unsubscribe = onSnapshot(doc(db, "products", id), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = { id: docSnap.id, ...docSnap.data() } as Product;
-        setProduct(data);
-        setActiveImage(fixDriveUrl(data.image || (data.images && data.images[0]) || ""));
+    const fetchProductDetails = async () => {
+      if (!id) return;
+      setLoading(true);
+      
+      try {
+        const docSnap = await getDoc(doc(db, "products", id));
+        if (docSnap.exists()) {
+          const data = { id: docSnap.id, ...docSnap.data() } as Product;
+          setProduct(data);
+          setActiveImage(fixDriveUrl(data.image || (data.images && data.images[0]) || ""));
 
-        // Fetch related products
-        if (data.category) {
-          const q = query(
-            collection(db, "products"), 
-            where("category", "==", data.category),
-            limit(5)
-          );
-          onSnapshot(q, (snap) => {
-            setRelatedProducts(snap.docs
+          // Fetch related products
+          if (data.category) {
+            const q = query(
+              collection(db, "products"), 
+              where("category", "==", data.category),
+              limit(5)
+            );
+            const relatedSnap = await getDocs(q);
+            setRelatedProducts(relatedSnap.docs
               .map(d => ({ id: d.id, ...d.data() } as Product))
               .filter(p => p.id !== id)
               .slice(0, 4)
             );
-          });
+          }
+        } else {
+          toast.error("Product not found");
+          navigate("/");
         }
-      } else {
-        toast.error("Product not found");
-        navigate("/");
+      } catch (error) {
+        console.error("Error fetching product details:", error);
+        handleFirestoreError(error, OperationType.GET, `products/${id}`);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
+    fetchProductDetails();
   }, [id, navigate]);
 
   const handleAddToCart = () => {
@@ -304,23 +311,93 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
         </div>
       </div>
 
-      {/* Specs */}
-      {product.specs && product.specs.length > 0 && (
-        <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
-          <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-            <div className="w-2 h-6 bg-primary rounded-full" />
-            Specifications
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-0 border-t border-gray-100">
-            {product.specs.map((spec, i) => (
-              <div key={i} className="flex justify-between py-4 border-b border-gray-50 group hover:bg-gray-50/50 px-2 transition-colors">
-                <span className="text-gray-500 text-sm font-medium">{spec.label}</span>
-                <span className="font-bold text-sm text-gray-900">{spec.value}</span>
-              </div>
-            ))}
-          </div>
+      {/* Product Information Tabs */}
+      <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+        <div className="flex flex-wrap gap-8 border-b border-gray-100 mb-8 pb-4 overflow-x-auto scrollbar-hide">
+          {[
+            { id: 'details', label: 'Product Details' },
+            { id: 'attributes', label: 'Product Attributes' },
+            { id: 'packing', label: 'Packing' },
+            { id: 'reviews', label: 'Product Reviews' }
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`text-sm font-bold uppercase tracking-widest transition-all relative pb-4 ${
+                activeTab === tab.id ? 'text-primary' : 'text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              {tab.label}
+              {activeTab === tab.id && (
+                <motion.div 
+                  layoutId="activeTab"
+                  className="absolute bottom-0 left-0 right-0 h-1 bg-primary rounded-full" 
+                />
+              )}
+            </button>
+          ))}
         </div>
-      )}
+
+        <div className="min-h-[200px]">
+          {activeTab === 'details' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="prose prose-sm max-w-none text-gray-600 leading-relaxed"
+            >
+              {product.details || product.description || "No detailed information available for this product."}
+            </motion.div>
+          )}
+
+          {activeTab === 'attributes' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-0"
+            >
+              {(product.attributes && product.attributes.length > 0 ? product.attributes : (product.specs || [])).map((attr, i) => (
+                <div key={i} className="flex justify-between py-4 border-b border-gray-50 group hover:bg-gray-50/50 px-2 transition-colors">
+                  <span className="text-gray-500 text-sm font-medium">{attr.label}</span>
+                  <span className="font-bold text-sm text-gray-900">{attr.value}</span>
+                </div>
+              ))}
+              {(!product.attributes || product.attributes.length === 0) && (!product.specs || product.specs.length === 0) && (
+                <p className="text-gray-400 italic text-sm py-4">No attributes specified.</p>
+              )}
+            </motion.div>
+          )}
+
+          {activeTab === 'packing' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-gray-600 leading-relaxed whitespace-pre-wrap"
+            >
+              {product.packing || "Packing information not specified."}
+            </motion.div>
+          )}
+
+          {activeTab === 'reviews' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              {product.reviews ? (
+                <div className="text-gray-600 leading-relaxed whitespace-pre-wrap">
+                  {product.reviews}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <Star size={48} className="mb-4 opacity-20" />
+                  <p className="text-sm font-medium">No reviews yet for this product.</p>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </div>
+      </div>
+
       {/* Related Products */}
       <section className="pt-12 border-t border-gray-100">
         <div className="flex items-center justify-between mb-8">
