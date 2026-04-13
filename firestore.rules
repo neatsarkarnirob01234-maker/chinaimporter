@@ -57,8 +57,7 @@ service cloud.firestore {
         request.resource.data.role == resource.data.role && 
         request.resource.data.holdBalance == resource.data.holdBalance &&
         (request.resource.data.walletBalance == resource.data.walletBalance || 
-         (request.resource.data.walletBalance < resource.data.walletBalance && 
-          existsAfter(/databases/$(database)/documents/refundRequests/$(request.resource.data.lastRefundId)))));
+         (request.resource.data.walletBalance < resource.data.walletBalance)));
     }
 
     // Product Rules
@@ -102,7 +101,10 @@ service cloud.firestore {
       allow update: if settingId == 'counters' && 
         isAuthenticated() && 
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['orderCount']) &&
-        request.resource.data.orderCount == resource.data.orderCount + 1;
+        (
+          (!('orderCount' in resource.data) && request.resource.data.orderCount == 1001) ||
+          (request.resource.data.orderCount == resource.data.orderCount + 1)
+        );
       
       // Allow users to initialize order counter if it doesn't exist
       allow create: if settingId == 'counters' && 

@@ -37,7 +37,7 @@ import {
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase";
-import { formatPrice, formatBDT } from "../lib/utils";
+import { formatPrice, formatBDT, compressImage } from "../lib/utils";
 import { Order, OrderStatus, UserProfile, RefundRequest } from "../types";
 import OrderTracking from "../components/OrderTracking";
 import { toast } from "sonner";
@@ -107,14 +107,15 @@ export default function Dashboard({ userProfile }: DashboardProps) {
   const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("File size must be less than 5MB");
+        return;
+      }
       const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        if (result.length > 800000) {
-          toast.error("Image is too large. Please use a smaller image.");
-          return;
-        }
-        setProfileData(prev => ({ ...prev, photoURL: result }));
+      reader.onloadend = async () => {
+        const base64 = reader.result as string;
+        const compressed = await compressImage(base64, 400, 400, 0.8);
+        setProfileData(prev => ({ ...prev, photoURL: compressed }));
       };
       reader.readAsDataURL(file);
     }

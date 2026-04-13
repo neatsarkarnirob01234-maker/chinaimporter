@@ -62,7 +62,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { Order, OrderStatus, RefundRequest, UserProfile, Product } from '../types';
-import { formatPrice, formatBDT } from '../lib/utils';
+import { formatPrice, formatBDT, compressImage } from '../lib/utils';
 import { toast } from 'sonner';
 import { useCategories } from '../contexts/CategoryContext';
 
@@ -850,21 +850,23 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     if (files && files.length > 0) {
       const fileList = Array.from(files) as File[];
       fileList.forEach((file) => {
+        if (file.size > 5 * 1024 * 1024) {
+          toast.error(`Image ${file.name} is too large. Max 5MB.`);
+          return;
+        }
         const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          if (result.length > 800000) {
-            toast.error(`Image ${file.name} is too large. Please use a smaller image.`);
-            return;
-          }
+        reader.onloadend = async () => {
+          const base64 = reader.result as string;
+          const compressed = await compressImage(base64, 1200, 1200, 0.7);
+          
           setSourcingForm(prev => {
             const newImages = [...(prev.images || [])];
-            if (!newImages.includes(result)) {
-              newImages.push(result);
+            if (!newImages.includes(compressed)) {
+              newImages.push(compressed);
             }
             return { 
               ...prev, 
-              image: prev.image || result, // Set as primary if none exists
+              image: prev.image || compressed, // Set as primary if none exists
               images: newImages 
             };
           });

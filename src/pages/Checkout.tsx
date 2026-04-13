@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { CreditCard, Truck, ShieldCheck, Upload, CheckCircle2, AlertCircle, ShoppingBag, ChevronLeft } from "lucide-react";
-import { formatPrice, formatBDT } from "../lib/utils";
+import { formatPrice, formatBDT, compressImage } from "../lib/utils";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { collection, addDoc, serverTimestamp, doc, getDoc, runTransaction, increment } from "firebase/firestore";
@@ -420,16 +420,18 @@ export default function Checkout({ userProfile, cart, clearCart }: CheckoutProps
                           accept="image/*"
                           className="hidden" 
                           id="payment-upload"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              if (file.size > 2 * 1024 * 1024) {
-                                toast.error("File size must be less than 2MB");
+                              if (file.size > 5 * 1024 * 1024) {
+                                toast.error("File size must be less than 5MB");
                                 return;
                               }
                               const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setPaymentProof(reader.result as string);
+                              reader.onloadend = async () => {
+                                const base64 = reader.result as string;
+                                const compressed = await compressImage(base64);
+                                setPaymentProof(compressed);
                               };
                               reader.readAsDataURL(file);
                             }
