@@ -17,6 +17,7 @@ import Admin from "./pages/Admin";
 import SearchResults from "./pages/SearchResults";
 import Wishlist from "./pages/Wishlist";
 import Category from "./pages/Category";
+import StaticPage from "./pages/StaticPage";
 
 export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -115,6 +116,7 @@ export default function App() {
                 <Route path="/" element={<Home userProfile={userProfile} />} />
                 <Route path="/search" element={<SearchResults />} />
                 <Route path="/category/:categoryName" element={<Category />} />
+                <Route path="/p/:slug" element={<StaticPage />} />
                 <Route path="/wishlist" element={<Wishlist />} />
                 <Route path="/product/:id" element={<ProductDetail addToCart={addToCart} />} />
                 <Route path="/cart" element={<Cart cart={cart} updateQuantity={updateQuantity} removeFromCart={removeFromCart} />} />

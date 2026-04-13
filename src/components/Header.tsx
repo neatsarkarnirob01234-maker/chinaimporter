@@ -156,8 +156,12 @@ export default function Header({ userProfile, cartCount }: HeaderProps) {
                 <User size={24} />
               </Link>
             ) : (
-              <Link to="/dashboard" className="w-8 h-8 bg-[#00A651] rounded-full flex items-center justify-center text-white font-bold text-xs ring-2 ring-emerald-50">
-                {userProfile.displayName?.[0] || userProfile.email[0].toUpperCase()}
+              <Link to="/dashboard" className="w-8 h-8 bg-[#00A651] rounded-full flex items-center justify-center text-white font-bold text-xs ring-2 ring-emerald-50 overflow-hidden">
+                {userProfile.photoURL ? (
+                  <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  userProfile.displayName?.[0] || userProfile.email[0].toUpperCase()
+                )}
               </Link>
             )}
           </div>

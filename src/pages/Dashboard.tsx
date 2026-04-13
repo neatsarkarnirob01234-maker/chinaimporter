@@ -19,7 +19,8 @@ import {
   Smartphone,
   Building2,
   Heart,
-  User
+  User,
+  Image as ImageIcon
 } from "lucide-react";
 import { 
   collection, 
@@ -30,6 +31,7 @@ import {
   getDocs,
   serverTimestamp,
   doc,
+  setDoc,
   updateDoc,
   increment
 } from "firebase/firestore";
@@ -45,7 +47,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ userProfile }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState<'orders' | 'wallet'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'wallet' | 'profile'>('orders');
   const [orders, setOrders] = useState<Order[]>([]);
   const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
@@ -58,6 +60,65 @@ export default function Dashboard({ userProfile }: DashboardProps) {
     bankName: "",
     branchName: ""
   });
+
+  // Profile Edit State
+  const [profileData, setProfileData] = useState({
+    displayName: "",
+    phoneNumber: "",
+    photoURL: "",
+    address: ""
+  });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  useEffect(() => {
+    if (userProfile) {
+      setProfileData({
+        displayName: userProfile.displayName || "",
+        phoneNumber: userProfile.phoneNumber || "",
+        photoURL: userProfile.photoURL || "",
+        address: userProfile.address || ""
+      });
+    }
+  }, [userProfile]);
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userProfile) return;
+
+    setIsSavingProfile(true);
+    try {
+      const userRef = doc(db, 'users', userProfile.uid);
+      await setDoc(userRef, {
+        displayName: profileData.displayName,
+        phoneNumber: profileData.phoneNumber,
+        photoURL: profileData.photoURL,
+        address: profileData.address,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      toast.success("Profile updated successfully!");
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      toast.error("Failed to update profile");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleProfilePicUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        if (result.length > 800000) {
+          toast.error("Image is too large. Please use a smaller image.");
+          return;
+        }
+        setProfileData(prev => ({ ...prev, photoURL: result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const fixDriveUrl = (url: string) => {
     if (!url) return url;
@@ -194,8 +255,12 @@ export default function Dashboard({ userProfile }: DashboardProps) {
     <div className="max-w-6xl mx-auto space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-orange-100">
-            {userProfile.displayName?.[0] || userProfile.email[0].toUpperCase()}
+          <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-orange-100 overflow-hidden">
+            {userProfile.photoURL ? (
+              <img src={userProfile.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              userProfile.displayName?.[0] || userProfile.email[0].toUpperCase()
+            )}
           </div>
           <div>
             <h1 className="text-3xl font-bold">My Dashboard</h1>
@@ -271,14 +336,16 @@ export default function Dashboard({ userProfile }: DashboardProps) {
           </Link>
 
           <button 
-            className="w-full flex items-center justify-between px-6 py-4 rounded-2xl font-bold bg-white text-gray-600 hover:bg-gray-50 border border-gray-100 transition-all"
-            onClick={() => toast.info("Profile settings coming soon!")}
+            className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl font-bold transition-all ${
+              activeTab === 'profile' ? 'bg-primary text-white shadow-lg shadow-orange-200' : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-100'
+            }`}
+            onClick={() => setActiveTab('profile')}
           >
             <div className="flex items-center gap-3">
               <User size={20} />
               Profile Settings
             </div>
-            <ChevronRight size={18} className="text-gray-300" />
+            <ChevronRight size={18} className={activeTab === 'profile' ? 'text-white' : 'text-gray-300'} />
           </button>
         </div>
 
@@ -347,6 +414,93 @@ export default function Dashboard({ userProfile }: DashboardProps) {
                   </div>
                 ))
               )}
+            </div>
+          ) : activeTab === 'profile' ? (
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="p-8 border-b border-gray-50">
+                <h3 className="text-xl font-bold">Profile Settings</h3>
+                <p className="text-gray-500 text-sm">Update your personal information</p>
+              </div>
+              <form onSubmit={handleUpdateProfile} className="p-8 space-y-6 max-w-xl">
+                <div className="flex items-center gap-6 mb-8">
+                  <div className="relative group">
+                    <div className="w-24 h-24 bg-gray-100 rounded-3xl overflow-hidden border-2 border-gray-50 flex items-center justify-center text-gray-400">
+                      {profileData.photoURL ? (
+                        <img src={profileData.photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <User size={40} />
+                      )}
+                    </div>
+                    <label className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-all cursor-pointer rounded-3xl">
+                      <input type="file" className="hidden" accept="image/*" onChange={handleProfilePicUpload} />
+                      <ImageIcon size={20} />
+                    </label>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-gray-900">Profile Picture</h4>
+                    <p className="text-xs text-gray-500">Click to upload or change</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Full Name</label>
+                  <input 
+                    type="text" 
+                    placeholder="Enter your full name"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold"
+                    value={profileData.displayName}
+                    onChange={e => setProfileData({...profileData, displayName: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Phone Number</label>
+                  <input 
+                    type="tel" 
+                    placeholder="01XXX-XXXXXX"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold"
+                    value={profileData.phoneNumber}
+                    onChange={e => setProfileData({...profileData, phoneNumber: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Address</label>
+                  <textarea 
+                    placeholder="Enter your full address"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-primary outline-none font-bold min-h-[100px]"
+                    value={profileData.address}
+                    onChange={e => setProfileData({...profileData, address: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Email Address</label>
+                  <input 
+                    type="email" 
+                    disabled
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-400 font-bold cursor-not-allowed"
+                    value={userProfile.email}
+                  />
+                  <p className="text-[10px] text-gray-400">Email address cannot be changed</p>
+                </div>
+                
+                <button 
+                  type="submit"
+                  disabled={isSavingProfile}
+                  className="bg-primary text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-orange-200 hover:bg-orange-600 transition-all disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSavingProfile ? (
+                    <>
+                      <RefreshCcw size={18} className="animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={18} />
+                      Save Changes
+                    </>
+                  )}
+                </button>
+              </form>
             </div>
           ) : (
             <div className="space-y-6">

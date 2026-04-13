@@ -19,6 +19,8 @@ export interface Product {
     name: string;
     options: string[];
   }[];
+  variantImages?: Record<string, string>;
+  forceGoogleSearch?: boolean;
   createdAt?: any;
 }
 
@@ -32,6 +34,8 @@ export interface UserProfile {
   email: string;
   displayName?: string;
   phoneNumber?: string;
+  photoURL?: string;
+  address?: string;
   walletBalance: number;
   holdBalance: number;
   role: 'user' | 'admin';

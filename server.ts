@@ -457,6 +457,44 @@ async function startServer() {
     });
   });
 
+  app.get("/api/proxy/fetch-html", async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ error: "URL is required" });
+
+    console.log(`Proxy fetching URL: ${url}`);
+    try {
+      const urlObj = new URL(url as string);
+      console.log(`Proxy request headers:`, {
+        'User-Agent': 'Mozilla/5.0...',
+        'Referer': urlObj.origin
+      });
+      
+      const response = await fetch(url as string, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': urlObj.origin,
+          'Origin': urlObj.origin,
+          'Cache-Control': 'no-cache'
+        }
+      });
+
+      console.log(`Proxy response status: ${response.status} ${response.statusText}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+      }
+
+      const html = await response.text();
+      console.log(`Proxy fetch successful, HTML length: ${html.length}`);
+      res.send(html);
+    } catch (error: any) {
+      console.error("Proxy fetch error details:", error);
+      res.status(500).json({ error: "Failed to fetch HTML", details: error.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

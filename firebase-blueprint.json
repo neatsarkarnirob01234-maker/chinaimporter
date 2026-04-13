@@ -63,6 +63,19 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "userId", "amount", "status", "createdAt"]
+    },
+    "Page": {
+      "title": "Static Page",
+      "description": "Content for static pages like About Us, Policies, etc.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "slug": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "slug", "content"]
     }
   },
   "firestore": {
@@ -81,6 +94,10 @@
     "/refundRequests/{requestId}": {
       "schema": "RefundRequest",
       "description": "Wallet withdrawal requests."
+    },
+    "/pages/{pageId}": {
+      "schema": "Page",
+      "description": "Static content pages."
     }
   }
 }

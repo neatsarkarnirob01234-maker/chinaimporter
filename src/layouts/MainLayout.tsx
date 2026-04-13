@@ -1,8 +1,11 @@
-import { ReactNode } from "react";
+import { ReactNode, useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import Header from "../components/Header";
 import Sidebar from "../components/Sidebar";
 import { MessageCircle } from "lucide-react";
 import { motion } from "motion/react";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
 
 import { UserProfile } from "../types";
 
@@ -13,6 +16,32 @@ interface MainLayoutProps {
 }
 
 export default function MainLayout({ children, userProfile, cartCount }: MainLayoutProps) {
+  const [footerSettings, setFooterSettings] = useState({
+    description: 'The most trusted medium for direct product import from China for Bangladeshi buyers. We provide 100% payment security and fast delivery.',
+    importantLinks: [
+      { label: 'About Us', url: '#' },
+      { label: 'Shipping Policy', url: '#' },
+      { label: 'Refund Policy', url: '#' },
+      { label: 'Terms & Conditions', url: '#' }
+    ],
+    supportLinks: [
+      { label: 'Help Center', url: '#' },
+      { label: 'Order Tracking', url: '#' },
+      { label: 'Payment Methods', url: '#' },
+      { label: 'Contact Us', url: '#' }
+    ],
+    copyrightText: `© ${new Date().getFullYear()} SourcingPro BD. All rights reserved.`
+  });
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'footer'), (snapshot) => {
+      if (snapshot.exists()) {
+        setFooterSettings(snapshot.data() as any);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col font-sans">
       <Header userProfile={userProfile} cartCount={cartCount} />
@@ -41,25 +70,39 @@ export default function MainLayout({ children, userProfile, cartCount }: MainLay
           <div>
             <h3 className="text-xl font-bold mb-4">Sourcing<span className="text-primary">Pro</span></h3>
             <p className="text-gray-500 text-sm leading-relaxed">
-              The most trusted medium for direct product import from China for Bangladeshi buyers. We provide 100% payment security and fast delivery.
+              {footerSettings.description}
             </p>
           </div>
           <div>
             <h4 className="font-bold mb-4">Important Links</h4>
             <ul className="space-y-2 text-sm text-gray-600">
-              <li><a href="#" className="hover:text-primary">About Us</a></li>
-              <li><a href="#" className="hover:text-primary">Shipping Policy</a></li>
-              <li><a href="#" className="hover:text-primary">Refund Policy</a></li>
-              <li><a href="#" className="hover:text-primary">Terms & Conditions</a></li>
+              {footerSettings.importantLinks.map((link, idx) => (
+                <li key={idx}>
+                  {link.url === '#' || !link.url ? (
+                    <span className="opacity-50 cursor-default">{link.label}</span>
+                  ) : link.url.startsWith('http') ? (
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary">{link.label}</a>
+                  ) : (
+                    <Link to={`/p/${link.url.toLowerCase().replace(/ /g, '-')}`} className="hover:text-primary">{link.label}</Link>
+                  )}
+                </li>
+              ))}
             </ul>
           </div>
           <div>
             <h4 className="font-bold mb-4">Support</h4>
             <ul className="space-y-2 text-sm text-gray-600">
-              <li><a href="#" className="hover:text-primary">Help Center</a></li>
-              <li><a href="#" className="hover:text-primary">Order Tracking</a></li>
-              <li><a href="#" className="hover:text-primary">Payment Methods</a></li>
-              <li><a href="#" className="hover:text-primary">Contact Us</a></li>
+              {footerSettings.supportLinks.map((link, idx) => (
+                <li key={idx}>
+                  {link.url === '#' || !link.url ? (
+                    <span className="opacity-50 cursor-default">{link.label}</span>
+                  ) : link.url.startsWith('http') ? (
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="hover:text-primary">{link.label}</a>
+                  ) : (
+                    <Link to={`/p/${link.url.toLowerCase().replace(/ /g, '-')}`} className="hover:text-primary">{link.label}</Link>
+                  )}
+                </li>
+              ))}
             </ul>
           </div>
           <div>
@@ -75,7 +118,7 @@ export default function MainLayout({ children, userProfile, cartCount }: MainLay
           </div>
         </div>
         <div className="container mx-auto px-4 mt-12 pt-8 border-t border-gray-100 text-center text-gray-400 text-xs">
-          © {new Date().getFullYear()} SourcingPro BD. All rights reserved.
+          {footerSettings.copyrightText}
         </div>
       </footer>
     </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI, Type } from "@google/genai";
 import { 
   CheckCircle, 
   XCircle, 
@@ -42,7 +43,6 @@ import {
   PackageCheck,
   Package,
 } from 'lucide-react';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { 
   collection, 
   query, 
@@ -153,6 +153,26 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     bank: 'Account Name: ...\nAccount Number: ...\nBank Name: ...\nBranch: ...'
   });
   const [savingSettings, setSavingSettings] = useState(false);
+  const [pages, setPages] = useState<any[]>([]);
+  const [selectedPage, setSelectedPage] = useState<any>(null);
+  const [pageForm, setPageForm] = useState({ title: '', slug: '', content: '' });
+  const [isSavingPage, setIsSavingPage] = useState(false);
+  const [footerSettings, setFooterSettings] = useState({
+    description: 'The most trusted medium for direct product import from China for Bangladeshi buyers. We provide 100% payment security and fast delivery.',
+    importantLinks: [
+      { label: 'About Us', url: '#' },
+      { label: 'Shipping Policy', url: '#' },
+      { label: 'Refund Policy', url: '#' },
+      { label: 'Terms & Conditions', url: '#' }
+    ],
+    supportLinks: [
+      { label: 'Help Center', url: '#' },
+      { label: 'Order Tracking', url: '#' },
+      { label: 'Payment Methods', url: '#' },
+      { label: 'Contact Us', url: '#' }
+    ],
+    copyrightText: `© ${new Date().getFullYear()} SourcingPro BD. All rights reserved.`
+  });
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [csResponse, setCsResponse] = useState('');
   const [purchaseNote, setPurchaseNote] = useState('');
@@ -259,6 +279,16 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       if (paymentDoc.exists()) {
         setPaymentSettings(paymentDoc.data() as any);
       }
+
+      // Fetch Pages
+      const pagesSnapshot = await getDocs(collection(db, 'pages'));
+      setPages(pagesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+      // Fetch Footer Settings
+      const footerDoc = await getDoc(doc(db, 'settings', 'footer'));
+      if (footerDoc.exists()) {
+        setFooterSettings(footerDoc.data() as any);
+      }
     } catch (error) {
       console.error("Error fetching admin data:", error);
       handleFirestoreError(error, OperationType.GET, 'admin_data');
@@ -287,6 +317,50 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       setSavingSettings(false);
     }
   };
+
+  const handleSaveFooterSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    try {
+      await setDoc(doc(db, 'settings', 'footer'), footerSettings);
+      toast.success('Footer settings updated successfully');
+    } catch (error: any) {
+      console.error("Error saving footer settings:", error);
+      toast.error('Failed to save footer settings');
+      handleFirestoreError(error, OperationType.WRITE, 'settings/footer');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleSavePage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingPage(true);
+    try {
+      const slug = pageForm.slug || pageForm.title.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '');
+      const pageData = { ...pageForm, slug, updatedAt: serverTimestamp() };
+      
+      if (selectedPage) {
+        await updateDoc(doc(db, 'pages', selectedPage.id), pageData);
+        toast.success('Page updated successfully');
+      } else {
+        await addDoc(collection(db, 'pages'), { ...pageData, createdAt: serverTimestamp() });
+        toast.success('Page created successfully');
+      }
+      
+      // Refresh pages
+      const pagesSnapshot = await getDocs(collection(db, 'pages'));
+      setPages(pagesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setSelectedPage(null);
+      setPageForm({ title: '', slug: '', content: '' });
+    } catch (error: any) {
+      console.error("Error saving page:", error);
+      toast.error('Failed to save page: ' + (error.message || 'Unknown error'));
+      handleFirestoreError(error, OperationType.WRITE, 'pages');
+    } finally {
+      setIsSavingPage(false);
+    }
+  };
   const [newCategory, setNewCategory] = useState({ name: '', sub: [] as string[] });
   const [newBanner, setNewBanner] = useState({ title: '', subtitle: '', image: '', link: '', color: 'bg-primary' });
 
@@ -306,7 +380,8 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
     attributes: [],
     packing: '',
     details: '',
-    htmlSource: ''
+    htmlSource: '',
+    forceGoogleSearch: false
   });
   const [isFetching, setIsFetching] = useState(false);
   const [showReview, setShowReview] = useState(false);
@@ -340,36 +415,65 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         if (urlObj.hostname === 'm.1688.com') {
           urlObj.hostname = 'detail.1688.com';
         }
-        // Keep essential parameters for 1688/Alibaba if any, but usually they are not needed for detail pages
-        // For 1688 detail pages, the offer ID is in the path
+        // Keep essential parameters for 1688/Alibaba if any
         cleanUrl = urlObj.origin + urlObj.pathname;
-      } catch (e) {
-        // Fallback to original if URL parsing fails
+      } catch (e) {}
+
+      let sourceToAnalyze = sourcingForm.htmlSource || '';
+      
+      // Auto-fetch for supported sites
+      const isProxyableSource = cleanUrl.includes('chinaonlinebd.com') || 
+                               cleanUrl.includes('laobaan.com') || 
+                               cleanUrl.includes('aliexpress.com') ||
+                               cleanUrl.includes('1688.com') ||
+                               cleanUrl.includes('alibaba.com');
+                               
+      if (isProxyableSource && !sourceToAnalyze && !sourcingForm.forceGoogleSearch) {
+        try {
+          console.log("Attempting proxy fetch for source:", cleanUrl);
+          const proxyRes = await window.fetch(`/api/proxy/fetch-html?url=${encodeURIComponent(cleanUrl)}`);
+          console.log("Proxy response status:", proxyRes.status);
+          if (proxyRes.ok) {
+            sourceToAnalyze = await proxyRes.text();
+            console.log("Proxy fetch successful, source length:", sourceToAnalyze.length);
+            if (sourceToAnalyze.length < 500) {
+              console.warn("Proxy returned very short HTML, might be blocked or empty.");
+            }
+            setSourcingForm(prev => ({ ...prev, htmlSource: sourceToAnalyze }));
+          } else {
+            const errorData = await proxyRes.json().catch(() => ({}));
+            console.warn("Proxy fetch failed with status:", proxyRes.status, errorData);
+            toast.error(`Proxy fetch failed: ${proxyRes.status} ${proxyRes.statusText}`);
+          }
+        } catch (e: any) {
+          console.error("Proxy fetch failed with exception:", e);
+          toast.error(`Proxy fetch failed: ${e.message}`);
+        }
       }
 
-      const apiKey = process.env.GEMINI_API_KEY || ((import.meta as any).env?.VITE_GEMINI_API_KEY as string);
-      if (!apiKey) {
-        throw new Error("Gemini API Key is missing. Please check your environment variables.");
+      let prompt = `Analyze the product page. `;
+      if (sourcingForm.forceGoogleSearch) {
+        prompt += `URGENT: The direct link might be blocked. Use Google Search to find the product details (images, title, price, description, variants) for the product at ${cleanUrl}. `;
+      } else if (sourceToAnalyze) {
+        prompt += `I have provided the HTML source code of the page below. Use it as the primary source of information. `;
+      } else {
+        prompt += `Use the URL ${cleanUrl} to fetch the information. If the URL is blocked or requires login, use Google Search to find the product details (images, title, price, description) for the same product. `;
       }
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-3-flash-preview",
-        generationConfig: {
-          responseMimeType: "application/json",
-        }
-      });
       
-      let sourceToAnalyze = sourcingForm.htmlSource || '';
+      prompt += `Your task is to extract all relevant product information for an e-commerce site.`;
+
       let extractedDataHint = '';
-      
       if (sourceToAnalyze) {
-        // Try to extract critical JSON data blocks to help the AI focus
         const patterns = [
           /window\.detailData\s*=\s*(\{[\s\S]*?\});/, 
           /iDetailData\s*=\s*(\{[\s\S]*?\});/, 
           /window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});/,
           /window\.detailConfig\s*=\s*(\{[\s\S]*?\});/,
-          /iDetailConfig\s*=\s*(\{[\s\S]*?\});/
+          /iDetailConfig\s*=\s*(\{[\s\S]*?\});/,
+          /window\.__DATA__\s*=\s*(\{[\s\S]*?\});/,
+          /window\._detailData\s*=\s*(\{[\s\S]*?\});/,
+          /window\.globalData\s*=\s*(\{[\s\S]*?\});/,
+          /window\.pageData\s*=\s*(\{[\s\S]*?\});/
         ];
         
         const foundBlocks = [];
@@ -383,60 +487,65 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         }
       }
 
-      let prompt = `Analyze the product page. `;
-      if (sourcingForm.htmlSource) {
-        prompt += `I have provided the HTML source code of the page below. Use it as the primary source of information. ${extractedDataHint}`;
-      } else {
-        prompt += `Use the URL ${cleanUrl} to fetch the information. If the URL is blocked or requires login, use Google Search to find the product details (images, title, price, description) for the same product. `;
-      }
+      console.log("Requesting AI analysis from frontend...");
+      const apiKey = process.env.GEMINI_API_KEY || (process.env as any).VITE_GEMINI_API_KEY;
       
-      prompt += `Your task is to extract all relevant product information for an e-commerce site.
-        
-        Return a JSON object with the following fields:
-        - title: The full product name.
-        - price_rmb: The unit price in RMB (as a number).
-        - image: The main high-resolution product image URL.
-        - images: An array of ALL gallery image URLs found on the page.
-        - description: A comprehensive product description. Look for it in the 'Product Details', 'Overview', or 'Description' tabs. If it's in Chinese, translate it to English. BE VERY AGGRESSIVE: look for any text that describes the product features, materials, or usage. If you find multiple sections, combine them into one detailed description.
-        - video: A URL to the product video if available.
-        - category: A suitable category for this product.
-        - specs: An array of objects with {label, value} for product specifications. Look for these in the 'Specifications' or 'Details' table.
-        - variants: An array of objects with {name, options[]} for product options (e.g., Color, Size). 
-        
-        CRITICAL INSTRUCTIONS FOR ALIBABA/1688 VARIANTS:
-        1. Look for 'skuProps', 'skuMap', 'sku', 'item.skuProps', or 'skuConfig'.
-        2. Look for Chinese terms and translate them:
-           - "颜色" -> "Color"
-           - "尺码" or "尺寸" -> "Size"
-           - "规格" -> "Specification"
-        3. For each variant type (Color, Size, etc.), extract ALL available options.
-        4. If the options have specific prices in the 'skuMap', you can include the price in the option string (e.g., "Red - 25.3 RMB").
-        5. If you find image URLs associated with variants (like color swatches), add them to the 'images' array.
-        
-        CRITICAL INSTRUCTIONS FOR ALIBABA/1688 IMAGES:
-        1. Look for images in 'window.detailData', 'iDetailData', or 'window.__INITIAL_STATE__'.
-        2. Look for 'item.images', 'detailGallery', or 'images' arrays in the JSON blocks.
-        3. CLEAN ALL IMAGE URLs: Remove any thumbnail or resizing suffixes like '_50x50.jpg', '_Q90.jpg', '_300x300.jpg', '_640x640.jpg', '_400x400.jpg', '_80x80.jpg', '_60x60.jpg', etc. We need the ORIGINAL high-res images.
-        4. Ensure all URLs start with 'https:'. If they start with '//', prepend 'https:'.
-        
-        Return ONLY the raw JSON object. Do not wrap it in markdown blocks or add any other text.`;
+      if (!apiKey || apiKey === "undefined" || apiKey === "" || apiKey.includes("TODO")) {
+        throw new Error("Gemini API Key is missing or invalid. Please ensure your API key is correctly set in the environment.");
+      }
+      const ai = new GoogleGenAI({ apiKey });
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: sourceToAnalyze ? `${prompt}${extractedDataHint}\n\nHTML SOURCE CODE:\n${sourceToAnalyze.substring(0, 500000)}` : prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              price_rmb: { type: Type.STRING },
+              price_bdt: { type: Type.STRING },
+              image: { type: Type.STRING },
+              images: { type: Type.ARRAY, items: { type: Type.STRING } },
+              description: { type: Type.STRING },
+              details: { type: Type.STRING },
+              video: { type: Type.STRING },
+              category: { type: Type.STRING },
+              specs: { 
+                type: Type.ARRAY, 
+                items: { 
+                  type: Type.OBJECT,
+                  properties: {
+                    label: { type: Type.STRING },
+                    value: { type: Type.STRING }
+                  }
+                } 
+              },
+              variants: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    options: { type: Type.ARRAY, items: { type: Type.STRING } }
+                  }
+                }
+              },
+              variantImages: {
+                type: Type.OBJECT,
+                additionalProperties: { type: Type.STRING }
+              }
+            },
+            required: ["title"]
+          }
+        }
+      });
 
-      const contents = sourcingForm.htmlSource 
-        ? [prompt, `HTML SOURCE CODE (TRUNCATED IF TOO LARGE):\n${sourceToAnalyze.substring(0, 100000)}`]
-        : prompt;
-
-      const result = await model.generateContent(contents);
-      const response = await result.response;
-      let text = response.text();
+      let text = response.text;
       console.log("AI Raw Response:", text);
       if (!text) throw new Error("Empty response from AI");
 
-      if (text.includes('```json')) {
-        text = text.split('```json')[1].split('```')[0];
-      } else if (text.includes('```')) {
-        text = text.split('```')[1].split('```')[0];
-      }
-      
       let data;
       try {
         data = JSON.parse(text.trim());
@@ -452,17 +561,26 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       }
       
       // Advanced Image Cleaning Function
-      const cleanImageUrl = (url: string) => {
+      const cleanImageUrl = (url: string, baseUrl: string) => {
         if (!url) return '';
         let cleaned = url.trim();
         
         // Handle protocol-relative URLs
         if (cleaned.startsWith('//')) cleaned = 'https:' + cleaned;
         
+        // Handle relative URLs
+        if (cleaned.startsWith('/') && !cleaned.startsWith('//')) {
+          try {
+            const urlObj = new URL(baseUrl);
+            cleaned = urlObj.origin + cleaned;
+          } catch (e) {
+            // Fallback if baseUrl is invalid
+            if (baseUrl.includes('laobaan.com')) cleaned = 'https://laobaan.com' + cleaned;
+            else if (baseUrl.includes('chinaonlinebd.com')) cleaned = 'https://chinaonlinebd.com' + cleaned;
+          }
+        }
+        
         // Remove common Alibaba/1688 thumbnail suffixes while keeping the extension
-        // Matches things like _400x400.jpg, _Q90.jpg, _sum.jpg, etc.
-        // Also handles .webp and other formats
-        // We use a more comprehensive regex to catch various patterns
         cleaned = cleaned.replace(/(_\d+x\d+|_Q\d+|_sum|_640x640|_300x300|_50x50|_100x100|_200x200|_80x80|_40x40|_60x60|_720x720|_960x960)(\.jpg|\.png|\.webp|\.jpeg).*$/, '$2');
         
         // Handle cases where the suffix is after the extension like .jpg_400x400.jpg
@@ -482,15 +600,54 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         return cleaned;
       };
 
-      if (data.image) data.image = cleanImageUrl(data.image);
+      if (!data || (!data.title && !data.image)) {
+        throw new Error("AI failed to extract meaningful product data. Please try pasting the HTML source manually.");
+      }
+
+      if (data.image) data.image = cleanImageUrl(data.image, cleanUrl);
       if (data.images && Array.isArray(data.images)) {
-        data.images = data.images.map((img: string) => cleanImageUrl(img)).filter((img: string) => img);
+        data.images = data.images.map((img: string) => cleanImageUrl(img, cleanUrl)).filter((img: string) => img);
       } else {
         data.images = [];
       }
 
+      // Also clean variant images
+      if (data.variantImages && Array.isArray(data.variantImages)) {
+        const cleanedVariantImages: Record<string, string> = {};
+        data.variantImages.forEach((item: any) => {
+          if (item.option && item.image) {
+            cleanedVariantImages[item.option] = cleanImageUrl(item.image, cleanUrl);
+          }
+        });
+        data.variantImages = cleanedVariantImages;
+      } else if (data.variantImages && typeof data.variantImages === 'object') {
+        // Fallback for old structure if AI ignores schema
+        const cleanedVariantImages: Record<string, string> = {};
+        for (const [key, val] of Object.entries(data.variantImages)) {
+          if (typeof val === 'string') {
+            cleanedVariantImages[key] = cleanImageUrl(val, cleanUrl);
+          }
+        }
+        data.variantImages = cleanedVariantImages;
+      }
+
       if (!data.image && data.images && data.images.length > 0) {
         data.image = data.images[0];
+      }
+
+      // Parse prices from strings to numbers if needed
+      if (typeof data.price_rmb === 'string') {
+        const parsed = parseFloat(data.price_rmb.replace(/[^\d.]/g, ''));
+        data.price_rmb = isNaN(parsed) ? 0 : parsed;
+      }
+      if (typeof data.price_bdt === 'string') {
+        const parsed = parseFloat(data.price_bdt.replace(/[^\d.]/g, ''));
+        data.price_bdt = isNaN(parsed) ? 0 : parsed;
+      }
+
+      // If it's a Bangladeshi site and we have price_bdt but not price_rmb, sync them
+      if ((cleanUrl.includes('laobaan.com') || cleanUrl.includes('chinaonlinebd.com')) && data.price_bdt && !data.price_rmb) {
+        data.price_rmb = data.price_bdt;
       }
 
       setSourcingForm(prev => ({
@@ -501,10 +658,11 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       }));
       setShowReview(true);
       toast.success('Product details fetched successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Fetch error:', error);
-      toast.error('Failed to fetch details. If the URL is blocked, please try the "Advanced: Paste Page Source" method below.', {
-        duration: 6000
+      const errorMessage = error?.message || (typeof error === 'string' ? error : 'Unknown error');
+      toast.error(`Failed to fetch details: ${errorMessage}. If the URL is blocked, please try the "Advanced: Paste Page Source" method below.`, {
+        duration: 10000
       });
     } finally {
       setIsFetching(false);
@@ -529,6 +687,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
       attributes: product.attributes || [],
       packing: product.packing || '',
       details: product.details || '',
+      variantImages: product.variantImages || {},
       htmlSource: ''
     });
     setEditingProductId(product.id);
@@ -755,6 +914,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         }
       }
 
+      const isBDSource = sourcingForm.source_url?.includes('chinaonlinebd.com') || sourcingForm.source_url?.includes('laobaan.com');
       const finalPriceRmb = Number(sourcingForm.price_rmb) * (1 + profitMargin / 100);
       
       const productData = {
@@ -762,7 +922,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         image: mainImageUrl,
         images: galleryUrls,
         price_rmb: finalPriceRmb,
-        price_bdt: sourcingForm.price_bdt || Math.round(finalPriceRmb * 18.0),
+        price_bdt: sourcingForm.price_bdt || Math.round(finalPriceRmb * (isBDSource ? 1.0 : 18.0)),
         updatedAt: serverTimestamp()
       };
 
@@ -793,6 +953,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
         attributes: [],
         packing: '',
         details: '',
+        variantImages: {},
         htmlSource: ''
       });
       setEditingProductId(null);
@@ -1047,7 +1208,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
   }, []);
 
   const safeFetch = async (url: string, options?: RequestInit) => {
-    return await fetch(url, options);
+    return await window.fetch(url, options);
   };
 
   const checkDriveStatus = async () => {
@@ -1711,13 +1872,21 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                   animate={{ opacity: 1, y: 0 }}
                   className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100"
                 >
-                  <h2 className="text-xl font-bold mb-8 flex items-center gap-2 text-secondary">
-                    {editingProductId ? (
-                      <><Edit className="text-primary" size={24} /> Update Product Details</>
-                    ) : (
-                      <><Plus className="text-primary" size={24} /> Link 1688/Alibaba Product</>
-                    )}
-                  </h2>
+                    <h2 className="text-xl font-bold mb-8 flex items-center gap-2 text-secondary">
+                      {editingProductId ? (
+                        <><Edit className="text-primary" size={24} /> Update Product Details</>
+                      ) : (
+                        <><Plus className="text-primary" size={24} /> Link External Product</>
+                      )}
+                    </h2>
+                    
+                    <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 mb-6">
+                      <p className="text-xs text-blue-700 font-medium leading-relaxed">
+                        <span className="font-bold">Supported Sites:</span> 1688.com, Alibaba.com, ChinaOnlineBD.com, Laobaan.com. 
+                        <br />
+                        For 1688/Alibaba, you may need to paste the HTML source if auto-fetch fails.
+                      </p>
+                    </div>
                   
                   <form onSubmit={handleSourcingSubmit} className="space-y-6">
                     <div>
@@ -1743,7 +1912,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div>
-                          <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Price (RMB)</label>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase mb-2">Price (BDT/RMB)</label>
                           <input 
                             type="number" 
                             required
@@ -1777,7 +1946,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                           <div className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 font-bold flex items-center">
                             {sourcingForm.price_bdt 
                               ? formatBDT(sourcingForm.price_bdt) 
-                              : formatBDT(Math.round(Number(sourcingForm.price_rmb) * 18.0 * (1 + profitMargin / 100)))}
+                              : formatBDT(Math.round(Number(sourcingForm.price_rmb) * (sourcingForm.source_url?.includes('chinaonlinebd.com') || sourcingForm.source_url?.includes('laobaan.com') ? 1.0 : 18.0) * (1 + profitMargin / 100)))}
                           </div>
                         </div>
                       </div>
@@ -2052,7 +2221,7 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
 
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase">Source URL (1688/Alibaba)</label>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase">Source URL (1688, Alibaba, ChinaOnlineBD, Laobaan)</label>
                         <button 
                           type="button"
                           onClick={() => setSourcingForm({...sourcingForm, source_url: '', htmlSource: '', image: '', images: []})}
@@ -2080,7 +2249,20 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                           {showReview ? 'Re-Fetch' : 'Review'}
                         </button>
                       </div>
-                      {(sourcingForm.source_url.includes('1688.com') || sourcingForm.source_url.includes('alibaba.com')) && (
+                      
+                      <div className="flex items-center gap-2 mt-2">
+                        <input 
+                          type="checkbox" 
+                          id="forceGoogleSearch"
+                          className="w-3 h-3 rounded border-gray-300 text-primary focus:ring-primary"
+                          checked={sourcingForm.forceGoogleSearch || false}
+                          onChange={e => setSourcingForm({...sourcingForm, forceGoogleSearch: e.target.checked})}
+                        />
+                        <label htmlFor="forceGoogleSearch" className="text-[10px] text-gray-500 font-medium cursor-pointer">
+                          Force Google Search (Use if link is blocked or images missing)
+                        </label>
+                      </div>
+                      {(sourcingForm.source_url.includes('1688.com') || sourcingForm.source_url.includes('alibaba.com') || sourcingForm.source_url.includes('chinaonlinebd.com') || sourcingForm.source_url.includes('laobaan.com')) && (
                         <div className="mt-2 space-y-1">
                           <p className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
                             <AlertCircle size={12} />
@@ -2099,13 +2281,20 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                           <FileText size={14} />
                           Advanced: Paste Page Source (Recommended for Alibaba/1688)
                         </div>
-                        <button 
-                          type="button"
-                          onClick={() => setSourcingForm({...sourcingForm, htmlSource: ''})}
-                          className="text-[10px] text-amber-600 hover:underline font-bold"
-                        >
-                          Clear Source
-                        </button>
+                        <div className="flex items-center gap-3">
+                          {sourcingForm.htmlSource && (
+                            <span className="text-[10px] text-amber-600 font-mono">
+                              {Math.round(sourcingForm.htmlSource.length / 1024)} KB
+                            </span>
+                          )}
+                          <button 
+                            type="button"
+                            onClick={() => setSourcingForm({...sourcingForm, htmlSource: ''})}
+                            className="text-[10px] text-amber-600 hover:underline font-bold"
+                          >
+                            Clear Source
+                          </button>
+                        </div>
                       </div>
                       <p className="text-[10px] text-amber-700 leading-relaxed">
                         Alibaba and 1688 have strong security that often blocks direct links. For best results:
@@ -2170,9 +2359,76 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                 onChange={e => setSourcingForm({...sourcingForm, title: e.target.value})}
                               />
                             </div>
+
+                            <div className="space-y-2">
+                              <p className="text-xs font-bold text-blue-800 uppercase">Short Description</p>
+                              <textarea 
+                                rows={2}
+                                className="w-full px-4 py-3 rounded-xl border border-blue-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-xs"
+                                value={sourcingForm.description}
+                                onChange={e => setSourcingForm({...sourcingForm, description: e.target.value})}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <p className="text-xs font-bold text-blue-800 uppercase">Full Details (Description Tab)</p>
+                              <textarea 
+                                rows={4}
+                                className="w-full px-4 py-3 rounded-xl border border-blue-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-xs"
+                                value={sourcingForm.details}
+                                onChange={e => setSourcingForm({...sourcingForm, details: e.target.value})}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <p className="text-xs font-bold text-blue-800 uppercase">Specifications</p>
+                              <div className="space-y-2 max-h-40 overflow-y-auto p-2 border border-blue-100 rounded-lg bg-white/50">
+                                {sourcingForm.specs?.map((spec, idx) => (
+                                  <div key={idx} className="flex gap-2">
+                                    <input 
+                                      type="text"
+                                      className="flex-1 px-2 py-1 border rounded text-[10px]"
+                                      value={spec.label}
+                                      onChange={e => {
+                                        const newSpecs = [...(sourcingForm.specs || [])];
+                                        newSpecs[idx].label = e.target.value;
+                                        setSourcingForm({...sourcingForm, specs: newSpecs});
+                                      }}
+                                    />
+                                    <input 
+                                      type="text"
+                                      className="flex-1 px-2 py-1 border rounded text-[10px]"
+                                      value={spec.value}
+                                      onChange={e => {
+                                        const newSpecs = [...(sourcingForm.specs || [])];
+                                        newSpecs[idx].value = e.target.value;
+                                        setSourcingForm({...sourcingForm, specs: newSpecs});
+                                      }}
+                                    />
+                                    <button 
+                                      onClick={() => {
+                                        const newSpecs = sourcingForm.specs?.filter((_, i) => i !== idx);
+                                        setSourcingForm({...sourcingForm, specs: newSpecs});
+                                      }}
+                                      className="text-red-500 px-1"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                                <button 
+                                  onClick={() => setSourcingForm({...sourcingForm, specs: [...(sourcingForm.specs || []), {label: '', value: ''}]})}
+                                  className="text-[10px] text-blue-600 font-bold hover:underline"
+                                >
+                                  + Add Spec
+                                </button>
+                              </div>
+                            </div>
                             
                             <div className="space-y-2">
-                              <p className="text-xs font-bold text-blue-800 uppercase">Price (RMB)</p>
+                              <p className="text-xs font-bold text-blue-800 uppercase">
+                                Price ({sourcingForm.source_url?.includes('chinaonlinebd.com') || sourcingForm.source_url?.includes('laobaan.com') ? 'BDT' : 'RMB'})
+                              </p>
                               <input 
                                 type="number"
                                 className="w-full px-4 py-3 rounded-xl border border-blue-200 bg-white focus:ring-2 focus:ring-blue-500 outline-none text-xs"
@@ -2184,6 +2440,18 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                             <div className="space-y-3">
                             <div className="flex items-center justify-between">
                               <p className="text-xs font-bold text-blue-800 uppercase">Primary Image</p>
+                              {!sourcingForm.image && (
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    setSourcingForm({...sourcingForm, forceGoogleSearch: true});
+                                    handleFetchDetails();
+                                  }}
+                                  className="text-[10px] text-blue-600 hover:underline font-bold flex items-center gap-1"
+                                >
+                                  <Search size={10} /> Try Google Search
+                                </button>
+                              )}
                             </div>
                             <div className="aspect-square rounded-2xl overflow-hidden bg-white border border-blue-200 relative group">
                               <img 
@@ -2419,10 +2687,51 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                   </div>
                                 )}
                               </div>
+
+                              {/* Variant Image Mapping */}
+                              {(sourcingForm.variants?.some(v => v.name.toLowerCase().includes('color') || v.name.toLowerCase().includes('colour') || v.name.toLowerCase().includes('variant'))) && (
+                                <div className="space-y-3 pt-4 border-t border-blue-50">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs font-bold text-blue-800 uppercase">Variant Image Mapping</p>
+                                    <p className="text-[10px] text-gray-500">Map colors to specific images</p>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {sourcingForm.variants?.find(v => v.name.toLowerCase().includes('color') || v.name.toLowerCase().includes('colour') || v.name.toLowerCase().includes('variant'))?.options.map((opt, idx) => (
+                                      <div key={idx} className="p-2 bg-white rounded-xl border border-blue-100 flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-lg overflow-hidden bg-gray-50 border border-gray-100 flex-shrink-0">
+                                          {sourcingForm.variantImages?.[opt] ? (
+                                            <img src={fixDriveUrl(sourcingForm.variantImages[opt])} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                          ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-[8px] text-gray-400">No Img</div>
+                                          )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-[9px] font-bold text-gray-900 truncate">{opt}</p>
+                                          <select 
+                                            className="w-full text-[9px] bg-transparent border-none focus:ring-0 p-0 text-blue-600 font-medium"
+                                            value={sourcingForm.variantImages?.[opt] || ''}
+                                            onChange={e => {
+                                              const newMapping = { ...(sourcingForm.variantImages || {}) };
+                                              newMapping[opt] = e.target.value;
+                                              setSourcingForm({ ...sourcingForm, variantImages: newMapping });
+                                            }}
+                                          >
+                                            <option value="">Select Image...</option>
+                                            {sourcingForm.images?.map((img, imgIdx) => (
+                                              <option key={imgIdx} value={img}>Image {imgIdx + 1}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             <div className="p-3 bg-blue-100/50 rounded-xl border border-blue-200">
                               <p className="text-[10px] text-blue-700 leading-relaxed font-bangla">
-                                টিপ: ভেরিয়েন্ট (যেমন: কালার, সাইজ) না আসলে <b>Add Variant</b> বাটনে ক্লিক করে ম্যানুয়ালি যোগ করুন।
+                                টিপ: ভেরিয়েন্ট (যেমন: কালার, সাইজ) না আসলে <b>Add Variant</b> বাটনে ক্লিক করে ম্যানুয়ালি যোগ করুন। কালার অনুযায়ী ছবি না দেখালে <b>Variant Image Mapping</b> এ গিয়ে সঠিক ছবি সিলেক্ট করে দিন।
                               </p>
                             </div>
                           </div>
@@ -2474,9 +2783,9 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                   <h3 className="text-lg font-bold text-orange-800 mb-6">Sourcing Instructions</h3>
                   <ul className="space-y-6">
                     {[
-                      "Find a product on 1688.com or Alibaba.com",
+                      "Find a product on 1688, Alibaba, Laobaan, or ChinaOnlineBD",
                       "Copy the image URL and product link",
-                      "Calculate BDT price (RMB * Rate + Profit)",
+                      "Calculate BDT price (RMB * 18 or BDT directly)",
                       "Fill the form and click \"Add to Site\""
                     ].map((step, i) => (
                       <li key={i} className="flex gap-4">
@@ -2599,6 +2908,337 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                       )}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            </div>
+          ) : activeTab === 'footer-settings' ? (
+            <div className="max-w-4xl mx-auto space-y-8">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 space-y-8">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-black flex items-center gap-3 text-gray-900">
+                    <FileText className="text-primary" size={28} /> Footer Settings
+                  </h2>
+                  <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Customize your website footer</p>
+                </div>
+
+                <form onSubmit={handleSaveFooterSettings} className="space-y-8">
+                  {/* Brand Description */}
+                  <div className="space-y-4">
+                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Brand Description</label>
+                    <textarea 
+                      className="w-full bg-gray-50 p-5 rounded-2xl outline-none focus:ring-4 ring-primary/5 border-2 border-transparent focus:border-primary/20 transition-all min-h-[120px] font-medium text-gray-700" 
+                      value={footerSettings.description}
+                      onChange={e => setFooterSettings({...footerSettings, description: e.target.value})}
+                      placeholder="Enter brand description..."
+                    />
+                  </div>
+
+                  <p className="text-[10px] font-bold text-blue-500 bg-blue-50 p-3 rounded-xl border border-blue-100">
+                    💡 Tip: To link to a page you created in "Page Content", just enter its slug (e.g. "about-us") in the URL field.
+                  </p>
+
+                  {/* Important Links */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Important Links</label>
+                      <button 
+                        type="button"
+                        onClick={() => setFooterSettings({
+                          ...footerSettings, 
+                          importantLinks: [...footerSettings.importantLinks, { label: '', url: '#' }]
+                        })}
+                        className="text-xs font-black text-primary hover:underline flex items-center gap-1"
+                      >
+                        <Plus size={14} /> Add Link
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      {footerSettings.importantLinks.map((link, idx) => (
+                        <div key={idx} className="flex gap-3 items-center bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                          <div className="flex-1 flex gap-2">
+                            <input 
+                              type="text" 
+                              placeholder="Label"
+                              className="flex-1 bg-white px-4 py-2 rounded-xl outline-none border border-gray-200 focus:border-primary text-sm font-bold"
+                              value={link.label}
+                              onChange={e => {
+                                const newLinks = [...footerSettings.importantLinks];
+                                newLinks[idx].label = e.target.value;
+                                setFooterSettings({...footerSettings, importantLinks: newLinks});
+                              }}
+                            />
+                            <select
+                              className="flex-1 bg-white px-4 py-2 rounded-xl outline-none border border-gray-200 focus:border-primary text-sm font-medium"
+                              value={link.url}
+                              onChange={e => {
+                                const newLinks = [...footerSettings.importantLinks];
+                                newLinks[idx].url = e.target.value;
+                                setFooterSettings({...footerSettings, importantLinks: newLinks});
+                              }}
+                            >
+                              <option value="#">Select Page / URL</option>
+                              <optgroup label="Your Pages">
+                                {pages.map(p => (
+                                  <option key={p.id} value={p.slug}>{p.title}</option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="Custom URL">
+                                <option value={link.url}>{link.url.startsWith('http') ? 'External Link' : 'Custom Slug'}</option>
+                              </optgroup>
+                            </select>
+                          </div>
+                            <input 
+                              type="text" 
+                              placeholder="Or enter custom URL/Slug"
+                              className="flex-1 bg-white px-4 py-2 rounded-xl outline-none border border-gray-200 focus:border-primary text-sm font-medium"
+                              value={link.url}
+                              onChange={e => {
+                                const newLinks = [...footerSettings.importantLinks];
+                                newLinks[idx].url = e.target.value.trim().replace(/^\/+|\/+$/g, '');
+                                setFooterSettings({...footerSettings, importantLinks: newLinks});
+                              }}
+                            />
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newLinks = footerSettings.importantLinks.filter((_, i) => i !== idx);
+                              setFooterSettings({...footerSettings, importantLinks: newLinks});
+                            }}
+                            className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Support Links */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Support Links</label>
+                      <button 
+                        type="button"
+                        onClick={() => setFooterSettings({
+                          ...footerSettings, 
+                          supportLinks: [...footerSettings.supportLinks, { label: '', url: '#' }]
+                        })}
+                        className="text-xs font-black text-primary hover:underline flex items-center gap-1"
+                      >
+                        <Plus size={14} /> Add Link
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      {footerSettings.supportLinks.map((link, idx) => (
+                        <div key={idx} className="flex gap-3 items-center bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                          <div className="flex-1 flex gap-2">
+                            <input 
+                              type="text" 
+                              placeholder="Label"
+                              className="flex-1 bg-white px-4 py-2 rounded-xl outline-none border border-gray-200 focus:border-primary text-sm font-bold"
+                              value={link.label}
+                              onChange={e => {
+                                const newLinks = [...footerSettings.supportLinks];
+                                newLinks[idx].label = e.target.value;
+                                setFooterSettings({...footerSettings, supportLinks: newLinks});
+                              }}
+                            />
+                            <select
+                              className="flex-1 bg-white px-4 py-2 rounded-xl outline-none border border-gray-200 focus:border-primary text-sm font-medium"
+                              value={link.url}
+                              onChange={e => {
+                                const newLinks = [...footerSettings.supportLinks];
+                                newLinks[idx].url = e.target.value;
+                                setFooterSettings({...footerSettings, supportLinks: newLinks});
+                              }}
+                            >
+                              <option value="#">Select Page / URL</option>
+                              <optgroup label="Your Pages">
+                                {pages.map(p => (
+                                  <option key={p.id} value={p.slug}>{p.title}</option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="Custom URL">
+                                <option value={link.url}>{link.url.startsWith('http') ? 'External Link' : 'Custom Slug'}</option>
+                              </optgroup>
+                            </select>
+                          </div>
+                          <input 
+                            type="text" 
+                            placeholder="Or enter custom URL/Slug"
+                            className="flex-1 bg-white px-4 py-2 rounded-xl outline-none border border-gray-200 focus:border-primary text-sm font-medium"
+                            value={link.url}
+                            onChange={e => {
+                              const newLinks = [...footerSettings.supportLinks];
+                              newLinks[idx].url = e.target.value.trim().replace(/^\/+|\/+$/g, '');
+                              setFooterSettings({...footerSettings, supportLinks: newLinks});
+                            }}
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newLinks = footerSettings.supportLinks.filter((_, i) => i !== idx);
+                              setFooterSettings({...footerSettings, supportLinks: newLinks});
+                            }}
+                            className="p-2 text-red-400 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Copyright Text */}
+                  <div className="space-y-4">
+                    <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Copyright Text</label>
+                    <input 
+                      type="text" 
+                      className="w-full bg-gray-50 h-14 px-5 rounded-2xl outline-none focus:ring-4 ring-primary/5 border-2 border-transparent focus:border-primary/20 transition-all font-bold text-gray-700" 
+                      value={footerSettings.copyrightText}
+                      onChange={e => setFooterSettings({...footerSettings, copyrightText: e.target.value})}
+                      placeholder="e.g. © 2026 SourcingPro BD. All rights reserved."
+                    />
+                  </div>
+
+                  <button 
+                    type="submit"
+                    disabled={savingSettings}
+                    className="w-full bg-primary text-white h-16 rounded-[2rem] font-black shadow-xl shadow-orange-200/50 flex items-center justify-center gap-3 disabled:opacity-50 hover:scale-[1.02] active:scale-[0.98] transition-all text-lg uppercase tracking-widest"
+                  >
+                    {savingSettings ? <Loader2 className="animate-spin" /> : <CheckCircle />}
+                    {savingSettings ? "Saving Changes..." : "Update Footer Settings"}
+                  </button>
+                </form>
+              </div>
+            </div>
+          ) : activeTab === 'page-content' ? (
+            <div className="max-w-6xl mx-auto space-y-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Page List */}
+                <div className="lg:col-span-1 space-y-4">
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs">Your Pages</h3>
+                      <button 
+                        onClick={() => {
+                          setSelectedPage(null);
+                          setPageForm({ title: '', slug: '', content: '' });
+                        }}
+                        className="text-primary hover:text-orange-600 transition-colors"
+                      >
+                        <Plus size={20} />
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {pages.length === 0 ? (
+                        <p className="text-xs text-gray-400 font-bold text-center py-8">No pages created yet</p>
+                      ) : (
+                        pages.map(page => (
+                          <button
+                            key={page.id}
+                            onClick={() => {
+                              setSelectedPage(page);
+                              setPageForm({ title: page.title, slug: page.slug, content: page.content });
+                            }}
+                            className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center justify-between group ${
+                              selectedPage?.id === page.id 
+                                ? 'bg-primary/5 border-primary/20 text-primary' 
+                                : 'bg-gray-50 border-transparent text-gray-600 hover:bg-white hover:border-gray-200'
+                            }`}
+                          >
+                            <div>
+                              <p className="font-bold text-sm">{page.title}</p>
+                              <p className="text-[10px] font-mono opacity-60">/p/{page.slug}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <a 
+                                href={`/p/${page.slug}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="opacity-0 group-hover:opacity-100 p-2 text-blue-400 hover:text-blue-600 transition-all"
+                                title="View Page"
+                              >
+                                <ExternalLink size={16} />
+                              </a>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm('Are you sure you want to delete this page?')) {
+                                    deleteDocument('pages', page.id).then(() => {
+                                      setPages(prev => prev.filter(p => p.id !== page.id));
+                                      if (selectedPage?.id === page.id) {
+                                        setSelectedPage(null);
+                                        setPageForm({ title: '', slug: '', content: '' });
+                                      }
+                                    });
+                                  }
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-2 text-red-400 hover:text-red-600 transition-all"
+                                title="Delete Page"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Editor */}
+                <div className="lg:col-span-2">
+                  <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+                    <h3 className="font-black text-gray-900 uppercase tracking-widest text-xs mb-8">
+                      {selectedPage ? 'Edit Page' : 'Create New Page'}
+                    </h3>
+                    <form onSubmit={handleSavePage} className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Page Title</label>
+                          <input 
+                            type="text" 
+                            required
+                            className="w-full bg-gray-50 h-12 px-4 rounded-xl outline-none border-2 border-transparent focus:border-primary/20 focus:ring-4 ring-primary/5 transition-all font-bold text-gray-700"
+                            value={pageForm.title}
+                            onChange={e => setPageForm({...pageForm, title: e.target.value})}
+                            placeholder="e.g. About Us"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">URL Slug (Optional)</label>
+                          <input 
+                            type="text" 
+                            className="w-full bg-gray-50 h-12 px-4 rounded-xl outline-none border-2 border-transparent focus:border-primary/20 focus:ring-4 ring-primary/5 transition-all font-mono text-sm text-gray-500"
+                            value={pageForm.slug}
+                            onChange={e => setPageForm({...pageForm, slug: e.target.value.toLowerCase().replace(/ /g, '-')})}
+                            placeholder="e.g. about-us"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Page Content (HTML/Text)</label>
+                        <textarea 
+                          required
+                          className="w-full bg-gray-50 p-6 rounded-2xl outline-none border-2 border-transparent focus:border-primary/20 focus:ring-4 ring-primary/5 transition-all min-h-[400px] font-medium text-gray-700 leading-relaxed"
+                          value={pageForm.content}
+                          onChange={e => setPageForm({...pageForm, content: e.target.value})}
+                          placeholder="Write your page content here... You can use HTML tags for formatting."
+                        />
+                      </div>
+
+                      <button 
+                        type="submit"
+                        disabled={isSavingPage}
+                        className="w-full bg-black text-white h-14 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-gray-200 flex items-center justify-center gap-3 disabled:opacity-50 hover:scale-[1.01] active:scale-[0.99] transition-all"
+                      >
+                        {isSavingPage ? <Loader2 className="animate-spin" /> : <CheckCircle />}
+                        {isSavingPage ? "Saving Page..." : (selectedPage ? "Update Page Content" : "Create Page")}
+                      </button>
+                    </form>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3126,6 +3766,17 @@ export default function AdminDashboard({ userProfile }: AdminDashboardProps) {
                                   </span>
                                 ))}
                               </div>
+                              {item.source_url && (
+                                <a 
+                                  href={item.source_url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 mt-2 text-[10px] font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                                >
+                                  <ExternalLink size={10} />
+                                  Original Source Link
+                                </a>
+                              )}
                             </td>
                             <td className="px-6 py-4 text-center">
                               <span className="inline-flex items-center justify-center w-10 h-10 bg-gray-100 rounded-xl font-black text-gray-900">

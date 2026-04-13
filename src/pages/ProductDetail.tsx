@@ -21,6 +21,7 @@ import {
   Edit2,
   Play,
   ChevronDown,
+  ChevronsRight,
   Clock,
   Shield
 } from "lucide-react";
@@ -42,11 +43,23 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
   const [loading, setLoading] = useState(true);
   const [activeImage, setActiveImage] = useState<string>("");
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
-  const [activeTab, setActiveTab] = useState<'reviews' | 'attributes' | 'packing' | 'details'>('details');
+  const [activeTab, setActiveTab] = useState<'specification' | 'description' | 'reviews'>('specification');
   
   // Variant selection states
   const [selectedColor, setSelectedColor] = useState<string>("");
   const [sizeQuantities, setSizeQuantities] = useState<Record<string, number>>({});
+
+  const colorVariant = useMemo(() => product?.variants?.find(v => v.name.toLowerCase().includes('color')), [product]);
+  const sizeVariant = useMemo(() => product?.variants?.find(v => 
+    v.name.toLowerCase().includes('size') || 
+    v.name.toLowerCase().includes('capacity') ||
+    v.name.toLowerCase().includes('memory') ||
+    v.name.toLowerCase().includes('specification')
+  ), [product]);
+
+  const sizes = useMemo(() => sizeVariant ? sizeVariant.options : [], [sizeVariant]);
+  const sizeLabel = sizeVariant ? sizeVariant.name : 'Size';
+  const colorLabel = colorVariant ? colorVariant.name : 'Color';
 
   const fixDriveUrl = (url: string) => {
     if (!url) return url;
@@ -58,6 +71,19 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
       fixedUrl = 'https:' + fixedUrl;
     }
     return fixedUrl;
+  };
+
+  const isSizeChart = (url: string) => {
+    if (!url) return false;
+    const lower = url.toLowerCase();
+    return lower.includes('size') || 
+           lower.includes('table') || 
+           lower.includes('chart') || 
+           lower.includes('banner') ||
+           lower.includes('尺码') || 
+           lower.includes('尺寸') || 
+           lower.includes('表') ||
+           lower.includes('建议');
   };
 
   useEffect(() => {
@@ -74,8 +100,20 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
           
           // Initialize variant selection
           if (data.variants && data.variants.length > 0) {
-            const colorVariant = data.variants.find(v => v.name.toLowerCase() === 'color');
-            if (colorVariant) setSelectedColor(colorVariant.options[0]);
+            const cVar = data.variants.find(v => v.name.toLowerCase().includes('color') || v.name.toLowerCase().includes('colour') || v.name.toLowerCase().includes('variant'));
+            if (cVar) {
+              const firstOpt = cVar.options[0];
+              setSelectedColor(firstOpt);
+              if (data.variantImages && data.variantImages[firstOpt]) {
+                setActiveImage(fixDriveUrl(data.variantImages[firstOpt]));
+              } else {
+                // Smart fallback for initial image: skip size charts
+                const productImages = (data.images && data.images.length > 0 ? data.images : [data.image]).filter(img => !isSizeChart(img));
+                if (productImages.length > 0) {
+                  setActiveImage(fixDriveUrl(productImages[0]));
+                }
+              }
+            }
           }
 
           // Fetch related products
@@ -132,8 +170,8 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
         image: activeImage || product.image,
         quantity: qty,
         selectedVariants: { 
-          Color: selectedColor,
-          Size: size
+          [colorLabel]: selectedColor,
+          [sizeLabel]: size
         }
       };
       addToCart(cartItem);
@@ -167,8 +205,6 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
   const allImages = product.images && product.images.length > 0 
     ? product.images 
     : [product.image];
-
-  const sizes = ['S', 'M', 'L', 'XL', '2XL'];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-6">
@@ -227,11 +263,16 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white">
-                <img src="https://flagcdn.com/w20/cn.png" alt="CN" className="w-3 h-2 object-cover" />
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100">
+                <img src="https://flagcdn.com/w20/cn.png" alt="CN" className="w-4 h-3 object-cover rounded-sm" />
+                <span className="text-[11px] font-bold text-gray-600 uppercase tracking-tight">From China</span>
               </div>
-              <span className="text-sm font-bold text-gray-600">China Store</span>
+              <ChevronsRight size={14} className="text-gray-300" />
+              <div className="flex items-center gap-1.5 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100">
+                <img src="https://flagcdn.com/w20/bd.png" alt="BD" className="w-4 h-3 object-cover rounded-sm" />
+                <span className="text-[11px] font-bold text-gray-600 uppercase tracking-tight">To Bangladesh</span>
+              </div>
             </div>
 
             {/* Tiered Pricing */}
@@ -251,64 +292,124 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
               <span className="text-gray-600">Ships within 48 hours</span>
             </div>
 
-            {/* Color Selection */}
-            <div className="space-y-3">
-              <p className="text-sm font-bold text-gray-900">Color: <span className="text-gray-500 font-medium">{selectedColor || 'Light Gray'}</span></p>
-              <div className="flex flex-wrap gap-3">
-                {allImages.slice(0, 4).map((img, i) => (
-                  <button 
-                    key={i}
-                    onClick={() => setSelectedColor(`Color ${i+1}`)}
-                    className={`w-12 h-12 rounded-lg overflow-hidden border-2 transition-all ${i === 3 ? 'border-[#00A651] ring-1 ring-[#00A651]' : 'border-gray-200 hover:border-gray-400'}`}
-                  >
-                    <img src={fixDriveUrl(img)} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Size Table */}
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 bg-gray-50/50 border-b border-gray-100">
-                    <th className="px-6 py-4 font-bold text-xs">Size</th>
-                    <th className="px-6 py-4 font-bold text-xs">Price</th>
-                    <th className="px-6 py-4 font-bold text-xs">Stock</th>
-                    <th className="px-6 py-4 font-bold text-xs text-center">Quantity</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {sizes.map((size) => (
-                    <tr key={size} className="hover:bg-gray-50/30 transition-colors">
-                      <td className="px-6 py-4 font-medium text-gray-900">{size}</td>
-                      <td className="px-6 py-4 font-medium text-gray-700">{unitPriceBDT.toFixed(2)}</td>
-                      <td className="px-6 py-4 text-gray-500">6369</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-center gap-4">
-                          <button 
-                            onClick={() => updateSizeQty(size, -1)}
-                            className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors text-gray-500"
-                          >
-                            <Minus size={14} />
-                          </button>
-                          <span className="w-6 text-center font-bold text-gray-900">{sizeQuantities[size] || 0}</span>
-                          <button 
-                            onClick={() => updateSizeQty(size, 1)}
-                            className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors text-gray-500"
-                          >
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+            {/* Variant Selection */}
+            {colorVariant && (
+              <div className="space-y-3">
+                <p className="text-sm font-bold text-gray-900">{colorLabel}: <span className="text-[#00A651] font-medium">{selectedColor}</span></p>
+                <div className="flex flex-wrap gap-3">
+                  {colorVariant.options.map((opt, i) => (
+                    <button 
+                      key={i}
+                      onClick={() => {
+                        setSelectedColor(opt);
+                        if (product.variantImages && product.variantImages[opt]) {
+                          setActiveImage(fixDriveUrl(product.variantImages[opt]));
+                        } else {
+                          // Smart fallback: Try to find an image that isn't a size chart
+                          const productImages = allImages.filter(img => !isSizeChart(img));
+                          if (productImages.length >= colorVariant.options.length) {
+                            setActiveImage(fixDriveUrl(productImages[i]));
+                          } else if (productImages[i]) {
+                            setActiveImage(fixDriveUrl(productImages[i]));
+                          } else if (productImages[0]) {
+                            setActiveImage(fixDriveUrl(productImages[0]));
+                          }
+                        }
+                      }}
+                      className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${selectedColor === opt ? 'border-[#00A651] bg-emerald-50 text-[#00A651]' : 'border-gray-200 hover:border-gray-400 text-gray-600'}`}
+                    >
+                      {opt}
+                    </button>
                   ))}
-                </tbody>
-              </table>
-              <button className="w-full py-3 text-xs font-bold text-gray-500 flex items-center justify-center gap-1 hover:bg-gray-50 transition-colors border-t border-gray-100">
-                Show More <ChevronDown size={14} />
-              </button>
-            </div>
+                </div>
+              </div>
+            )}
+
+            {!colorVariant && allImages.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-sm font-bold text-gray-900">Color: <span className="text-gray-500 font-medium">{selectedColor || 'Default'}</span></p>
+                <div className="flex flex-wrap gap-3">
+                  {allImages.slice(0, 4).map((img, i) => (
+                    <button 
+                      key={i}
+                      onClick={() => {
+                        setSelectedColor(`Variant ${i+1}`);
+                        setActiveImage(fixDriveUrl(img));
+                      }}
+                      className={`w-12 h-12 rounded-lg overflow-hidden border-2 transition-all ${selectedColor === `Variant ${i+1}` ? 'border-[#00A651] ring-1 ring-[#00A651]' : 'border-gray-200 hover:border-gray-400'}`}
+                    >
+                      <img src={fixDriveUrl(img)} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Size Table or Single Quantity Selector */}
+            {sizes.length > 0 ? (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 bg-gray-50/50 border-b border-gray-100">
+                      <th className="px-6 py-4 font-bold text-xs">{sizeLabel}</th>
+                      <th className="px-6 py-4 font-bold text-xs">Price</th>
+                      <th className="px-6 py-4 font-bold text-xs">Stock</th>
+                      <th className="px-6 py-4 font-bold text-xs text-center">Quantity</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sizes.map((size) => (
+                      <tr key={size} className="hover:bg-gray-50/30 transition-colors">
+                        <td className="px-6 py-4 font-medium text-gray-900">{size}</td>
+                        <td className="px-6 py-4 font-medium text-gray-700">{unitPriceBDT.toFixed(2)}</td>
+                        <td className="px-6 py-4 text-gray-500">6369</td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-center gap-4">
+                            <button 
+                              onClick={() => updateSizeQty(size, -1)}
+                              className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors text-gray-500"
+                            >
+                              <Minus size={14} />
+                            </button>
+                            <span className="w-6 text-center font-bold text-gray-900">{sizeQuantities[size] || 0}</span>
+                            <button 
+                              onClick={() => updateSizeQty(size, 1)}
+                              className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors text-gray-500"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {sizes.length > 5 && (
+                  <button className="w-full py-3 text-xs font-bold text-gray-500 flex items-center justify-center gap-1 hover:bg-gray-50 transition-colors border-t border-gray-100">
+                    Show More <ChevronDown size={14} />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border border-gray-100">
+                <span className="text-sm font-bold text-gray-700 uppercase">Quantity</span>
+                <div className="flex items-center gap-6">
+                  <button 
+                    onClick={() => updateSizeQty('default', -1)}
+                    className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center hover:bg-gray-50 transition-colors text-gray-500 border border-gray-200"
+                  >
+                    <Minus size={18} />
+                  </button>
+                  <span className="w-8 text-center text-lg font-black text-gray-900">{sizeQuantities['default'] || 0}</span>
+                  <button 
+                    onClick={() => updateSizeQty('default', 1)}
+                    className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center hover:bg-gray-50 transition-colors text-gray-500 border border-gray-200"
+                  >
+                    <Plus size={18} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -343,11 +444,20 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
 
               <div className="space-y-4 pt-2">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-600 font-medium">{totalQuantity} Pieces</span>
+                  <span className="text-gray-600 font-medium">Product Quantity</span>
+                  <span className="font-bold text-gray-900">{totalQuantity}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600 font-medium">Product Price</span>
                   <span className="font-bold text-gray-900">৳{totalPriceBDT.toFixed(0)}</span>
                 </div>
                 <div className="flex justify-between items-center pt-3 border-t border-gray-100">
-                  <span className="text-sm font-bold text-gray-900">Total</span>
+                  <div className="space-y-0.5">
+                    <span className="text-sm font-bold text-gray-900">Total Cost</span>
+                    <p className="text-[9px] text-gray-400 font-medium leading-tight">
+                      + China Local Courier Charge & Shipping Charge.
+                    </p>
+                  </div>
                   <span className="text-xl font-black text-gray-900">৳{totalPriceBDT.toFixed(0)}</span>
                 </div>
               </div>
@@ -412,6 +522,77 @@ export default function ProductDetail({ addToCart }: ProductDetailProps) {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Tabs Section */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <div className="flex border-b border-gray-100">
+          <button 
+            onClick={() => setActiveTab('specification')}
+            className={`px-8 py-4 text-xs font-bold uppercase tracking-wider transition-all relative ${activeTab === 'specification' ? 'text-[#00A651]' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            Specification
+            {activeTab === 'specification' && <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#00A651]" />}
+          </button>
+          <button 
+            onClick={() => setActiveTab('description')}
+            className={`px-8 py-4 text-xs font-bold uppercase tracking-wider transition-all relative ${activeTab === 'description' ? 'text-[#00A651]' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            Description
+            {activeTab === 'description' && <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#00A651]" />}
+          </button>
+        </div>
+
+        <div className="p-8">
+          <AnimatePresence mode="wait">
+            {activeTab === 'specification' && (
+              <motion.div 
+                key="spec"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-0 border-t border-l border-gray-100"
+              >
+                {product.specs && product.specs.length > 0 ? (
+                  product.specs.map((spec, i) => (
+                    <div key={i} className="flex border-b border-r border-gray-100">
+                      <div className="w-1/3 bg-gray-50/50 px-4 py-3 text-[10px] font-bold text-gray-500 uppercase flex items-center">
+                        {spec.label}
+                      </div>
+                      <div className="w-2/3 px-4 py-3 text-[11px] text-gray-700 font-medium flex items-center">
+                        {spec.value}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="col-span-2 py-12 text-center text-gray-400 text-sm italic border-b border-r border-gray-100">
+                    No specifications available for this product.
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {activeTab === 'description' && (
+              <motion.div 
+                key="desc"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="prose prose-sm max-w-none text-gray-600 leading-relaxed"
+              >
+                {product.details ? (
+                  <div dangerouslySetInnerHTML={{ __html: product.details.replace(/\n/g, '<br/>') }} />
+                ) : product.description ? (
+                  <p>{product.description}</p>
+                ) : (
+                  <div className="py-12 text-center text-gray-400 text-sm italic">
+                    No detailed description available.
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 

@@ -17,6 +17,9 @@ service cloud.firestore {
     // Collection: refundRequests
     // Fields: id, userId, amount, status, gatewayCharge, payoutTransactionId, createdAt
     //
+    // Collection: pages
+    // Fields: title, slug, content, createdAt, updatedAt
+    //
     // ===============================================================
 
     // Helper Functions
@@ -35,6 +38,15 @@ service cloud.firestore {
 
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Domain Validators (CRITICAL: Use these in both create and update)
+    
+    function isValidPage(data) {
+      return data.keys().hasAll(['title', 'slug', 'content']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.slug is string && data.slug.size() > 0 && data.slug.size() < 100 &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 100000;
     }
 
     // User Rules
@@ -97,6 +109,12 @@ service cloud.firestore {
         isAuthenticated() && 
         request.resource.data.keys().hasOnly(['orderCount']) &&
         request.resource.data.orderCount == 1001;
+    }
+
+    // Page Rules
+    match /pages/{pageId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }
